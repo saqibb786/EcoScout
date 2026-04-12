@@ -1,0 +1,82 @@
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 2px 22px;
+  border-bottom: 1px solid rgba(148, 208, 184, 0.18);
+  margin-bottom: 12px;
+  animation: slideUpFade var(--duration-normal) var(--ease-soft);
+}
+
+.header-copy {
+  flex: 1;
+}
+
+.header-kicker {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-tertiary);
+  margin: 0 0 10px 0;
+}
+
+.header h1 {
+  font-size: clamp(2rem, 3.4vw, 2.8rem);
+  margin: 0;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+@supports (-webkit-background-clip: text) {
+  .header h1 {
+    background: linear-gradient(138deg, var(--text-primary) 18%, var(--accent-primary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+.header-subtitle {
+  margin-top: 8px;
+  font-size: 0.98rem;
+  color: var(--text-secondary);
+  max-width: 70ch;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 0;
+}
+
+.meta-pill {
+  background: rgba(16, 24, 23, 0.88);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .header h1 {
+    font-size: clamp(1.45rem, 6vw, 2rem);
+  }
+}

@@ -1,0 +1,231 @@
+/* Main App Layout */
+.app-container {
+  display: grid;
+  grid-template-columns: 282px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 25%),
+    transparent;
+  color: var(--text-primary);
+}
+
+/* Content Area */
+.main-content {
+  width: 100%;
+  min-height: 100dvh;
+  min-width: 0;
+  max-width: 100%;
+  padding: 18px;
+  position: relative;
+  border-radius: 24px;
+  border: 1px solid rgba(178, 202, 194, 0.12);
+  background:
+    linear-gradient(180deg, rgba(12, 18, 17, 0.78), rgba(8, 14, 13, 0.9)),
+    var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding-bottom: 4px;
+}
+
+.dashboard-view,
+.history-container,
+.results-container,
+.about-container,
+.upload-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.dashboard-view {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  animation: slideUpFade var(--duration-normal) var(--ease-out-expo);
+}
+
+.mission-panel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--border-light);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 22, 0.98), rgba(10, 16, 15, 0.98));
+  color: var(--text-primary);
+  padding: 28px;
+  box-shadow: var(--shadow-lg);
+}
+
+.mission-panel::after {
+  content: '';
+  position: absolute;
+  right: -80px;
+  top: -100px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(95, 200, 162, 0.18), transparent 68%);
+}
+
+.mission-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.mission-panel h2 {
+  margin: 10px 0;
+  font-size: clamp(1.35rem, 2.8vw, 2.1rem);
+  max-width: 22ch;
+}
+
+.mission-copy {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--text-secondary);
+}
+
+.mission-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mission-btn {
+  border-radius: var(--radius-full);
+  padding: 11px 16px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.mission-btn.primary {
+  background: linear-gradient(135deg, var(--accent-primary), #7fd8ba);
+  color: #06231b;
+  box-shadow: 0 10px 24px rgba(95, 200, 162, 0.14);
+}
+
+.mission-btn.ghost {
+  color: var(--text-primary);
+  border: 1px solid rgba(178, 202, 194, 0.18);
+  background: rgba(14, 21, 20, 0.5);
+}
+
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.stat-card.dashboard {
+  min-height: 150px;
+  border-radius: 18px;
+  border: 1px solid var(--border-light);
+  background: linear-gradient(180deg, rgba(16, 23, 22, 0.98), rgba(11, 16, 15, 0.98));
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.stat-number {
+  font-size: clamp(2rem, 3.6vw, 2.6rem);
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.latest-case-card {
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  background: linear-gradient(180deg, rgba(15, 21, 20, 0.98), rgba(9, 14, 13, 0.98));
+  box-shadow: var(--shadow-sm);
+  padding: 22px;
+}
+
+.latest-case-card h3 {
+  margin: 0 0 12px;
+}
+
+.case-name {
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  word-break: break-word;
+}
+
+.case-meta {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+}
+
+.case-violations {
+  margin: 0;
+  color: var(--status-danger);
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 1080px) {
+  .app-container {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 0;
+  }
+
+  .main-content {
+    width: 100%;
+    padding: 16px;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-content {
+    padding: 14px;
+  }
+
+  .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .mission-panel {
+    padding: 16px;
+  }
+
+  .mission-panel h2 {
+    max-width: none;
+  }
+
+  .mission-actions {
+    flex-direction: column;
+  }
+
+  .mission-btn {
+    width: 100%;
+  }
+}

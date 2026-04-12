@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Runtime artifacts
+evidence/
+temp/
+output/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Environment files
+.env
+.env.*
