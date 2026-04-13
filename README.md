@@ -17,18 +17,18 @@ EcoScout is a computer vision app for detecting vehicle-related violations, matc
 
 ## Run the App Manually
 
-Open two terminals from the project root: `c:\Users\SAQIB\Desktop\EcoScout`.
+Open two terminals from the project root.
 
 ### 1. Start the backend
 
 ```powershell
-c:/Users/SAQIB/Desktop/EcoScout/.venv/Scripts/python.exe -m uvicorn fastapi_app:app --app-dir C:/Users/SAQIB/Desktop/EcoScout --host 127.0.0.1 --port 8000
+python -m uvicorn fastapi_app:app --app-dir . --host 127.0.0.1 --port 8000
 ```
 
 ### 2. Start the frontend
 
 ```powershell
-Set-Location c:\Users\SAQIB\Desktop\EcoScout\frontend
+cd frontend
 npm install
 npm run dev -- --host 127.0.0.1
 ```
@@ -41,14 +41,13 @@ npm run dev -- --host 127.0.0.1
 ## Build the Frontend
 
 ```powershell
-Set-Location c:\Users\SAQIB\Desktop\EcoScout\frontend
+cd frontend
 npm run build
 ```
 
 ## Push to GitHub
 
 ```powershell
-Set-Location c:\Users\SAQIB\Desktop\EcoScout
 git init
 git add .
 git commit -m "Initial EcoScout project"
