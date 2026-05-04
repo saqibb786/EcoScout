@@ -329,11 +329,7 @@ function drawFooterOnAllPages(doc) {
     doc.setTextColor(...THEME.muted);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
-    doc.text(
-      "EcoScout · AI-assisted environmental violation intelligence",
-      PAGE.marginX,
-      pageHeight - 13,
-    );
+    doc.text("EcoScout", PAGE.marginX, pageHeight - 13);
     doc.text(
       `Page ${i} / ${totalPages}`,
       pageWidth - PAGE.marginX - 48,
@@ -694,6 +690,7 @@ export async function exportCaseReportPdf(inputCase) {
         cardY + 14,
       );
 
+      // Prefer backend-provided crop images when available; otherwise crop client-side.
       const baseDataUrl = item.imageUrl
         ? await fetchImageAsDataUrl(item.imageUrl)
         : null;
@@ -704,14 +701,26 @@ export async function exportCaseReportPdf(inputCase) {
       doc.text("Vehicle Crop", cardX + 10, cardY + 30);
       doc.text("Plate Crop", cardX + 202, cardY + 30);
 
-      const vehicleCrop =
-        baseDataUrl && item.record.vehicle_bbox
-          ? await cropImageRegion(baseDataUrl, item.record.vehicle_bbox)
-          : null;
-      const plateCrop =
-        baseDataUrl && item.record.plate_bbox
-          ? await cropImageRegion(baseDataUrl, item.record.plate_bbox)
-          : null;
+      let vehicleCrop = null;
+      if (item.record.vehicle_crop_url) {
+        const url =
+          item.record.vehicle_crop_url_abs || item.record.vehicle_crop_url;
+        vehicleCrop = await fetchImageAsDataUrl(url);
+      } else if (baseDataUrl && item.record.vehicle_bbox) {
+        vehicleCrop = await cropImageRegion(
+          baseDataUrl,
+          item.record.vehicle_bbox,
+        );
+      }
+
+      let plateCrop = null;
+      if (item.record.plate_crop_url) {
+        const url =
+          item.record.plate_crop_url_abs || item.record.plate_crop_url;
+        plateCrop = await fetchImageAsDataUrl(url);
+      } else if (baseDataUrl && item.record.plate_bbox) {
+        plateCrop = await cropImageRegion(baseDataUrl, item.record.plate_bbox);
+      }
 
       if (vehicleCrop) {
         try {

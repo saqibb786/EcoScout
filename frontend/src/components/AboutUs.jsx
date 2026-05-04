@@ -3,43 +3,17 @@ import { GitBranch, Zap, Shield, Eye } from 'lucide-react';
 import './AboutUs.css';
 
 const AboutUs = () => {
-  const features = [
-    {
-      icon: <Eye size={32} />,
-      title: 'Advanced Detection',
-      description: 'AI-powered detection of environmental violations including smoke and littering incidents.'
-    },
-    {
-      icon: <Shield size={32} />,
-      title: 'Vehicle Matching',
-      description: 'Identifies and matches violating vehicles using spatial analysis and confidence scoring.'
-    },
-    {
-      icon: <Zap size={32} />,
-      title: 'Plate Recognition',
-      description: 'OCR-based license plate extraction with masked display for privacy protection.'
-    },
-    {
-      icon: <GitBranch size={32} />,
-      title: 'Evidence Pipeline',
-      description: 'Forensic-grade workflow delivering annotated media and detailed investigation records.'
-    },
-  ];
-
   const teamMembers = [
     {
-      name: 'Saqib',
-      image: '/assets/saqib.png',
+      name: 'Saqib Ali Butt',
       role: 'Software Engineer'
     },
     {
-      name: 'Abdullah',
-      image: '/assets/abdullah.png',
+      name: 'Abdullah Naveed',
       role: 'Software Engineer'
     },
     {
-      name: 'Anwar',
-      image: '/assets/anwar.png',
+      name: 'Anwar Karim',
       role: 'Software Engineer'
     },
   ];
@@ -56,31 +30,26 @@ const AboutUs = () => {
         </p>
       </div>
 
-      <div className="features-section">
-        <h2>Core Features</h2>
-        <div className="features-grid">
-          {features.map((feature, idx) => (
-            <div key={idx} className="feature-card">
-              <div className="feature-icon">{feature.icon}</div>
-              <h3>{feature.title}</h3>
-              <p>{feature.description}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="team-section">
-        <h2>Our Team</h2>
-        <div className="team-grid">
-          {teamMembers.map((member, idx) => (
-            <div key={idx} className="team-card">
-              <div className="team-image-wrapper">
-                <img src={member.image} alt={member.name} className="team-image" />
+        <h2>Team</h2>
+        <div className="team-grid compact">
+          {teamMembers.map((member, idx) => {
+            const initials = member.name
+              .split(' ')
+              .map((n) => n[0])
+              .join('')
+              .slice(0, 2)
+              .toUpperCase();
+            return (
+              <div key={idx} className="team-card compact">
+                <div className="team-avatar">{initials}</div>
+                <div>
+                  <h3>{member.name}</h3>
+                  <p className="team-role">{member.role}</p>
+                </div>
               </div>
-              <h3>{member.name}</h3>
-              <p className="team-role">{member.role}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

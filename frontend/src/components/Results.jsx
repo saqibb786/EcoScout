@@ -169,8 +169,6 @@ const Results = ({ result }) => {
                 </div>
             </div>
 
-            {records.length > 0 && <AnalysisSummary records={records} />}
-
             <div className="results-grid">
                 <div className="image-section">
                     <h4>Annotated Output</h4>

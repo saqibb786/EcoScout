@@ -21,12 +21,30 @@ IMAGES_DIR = EVIDENCE_DIR / "images"
 VIDEOS_DIR = EVIDENCE_DIR / "videos"
 UPLOAD_DIR = BASE_DIR / "temp" / "uploads"
 
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 for folder in (IMAGES_DIR, VIDEOS_DIR, UPLOAD_DIR):
     folder.mkdir(parents=True, exist_ok=True)
 
 pipeline = ViolationPipeline(
-    violation_model_path=str(BASE_DIR / "violation_best.pt"),
+    litter_model_path=str(BASE_DIR / "litter_best.pt"),
+    smoke_model_path=str(BASE_DIR / "smoke_best.pt"),
+    vehicle_model_path=str(BASE_DIR / "yolov8s.pt"),
     plate_model_path=str(BASE_DIR / "plate_best.pt"),
+    litter_conf=_env_float("LITTER_CONF", 0.35),
+    smoke_conf=_env_float("SMOKE_CONF", 0.40),
+    vehicle_conf=_env_float("VEHICLE_CONF", 0.30),
+    plate_conf=_env_float("PLATE_CONF", 0.30),
+    vehicle_recover_conf=_env_float("VEHICLE_RECOVER_CONF", 0.15),
 )
 
 app = FastAPI(
@@ -95,7 +113,7 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
     annotated, records = pipeline.analyze_frame(
-        frame, source_name=file.filename)
+        frame, source_name=file.filename, source_type="image")
     out_name = f"image_{uuid.uuid4().hex[:12]}.jpg"
     out_path = IMAGES_DIR / out_name
 
@@ -112,6 +130,38 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
             "Annotated image could not be persisted to disk. "
             "Analysis results are returned without annotated media."
         )
+    # Persist per-record crops and attach URLs so reports can include them.
+    if ok:
+        base = out_name.rsplit(".", 1)[0]
+        for i, rec in enumerate(records):
+            rec["frame_image_url"] = annotated_rel
+            rec["frame_image_url_abs"] = annotated_abs
+
+            # vehicle crop
+            vb = rec.get("vehicle_bbox")
+            if vb:
+                vx1, vy1, vx2, vy2 = pipeline._clip_bbox(
+                    vb, frame.shape[1], frame.shape[0]
+                )
+                vehicle_crop = frame[vy1:vy2, vx1:vx2]
+                vname = f"{base}_rec{i}_vehicle.jpg"
+                vpath = IMAGES_DIR / vname
+                if _save_image_safely(vehicle_crop, vpath):
+                    rec["vehicle_crop_url"] = f"/evidence/images/{vname}"
+                    rec["vehicle_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{vname}"
+
+            # plate crop
+            pb = rec.get("plate_bbox")
+            if pb:
+                px1, py1, px2, py2 = pipeline._clip_bbox(
+                    pb, frame.shape[1], frame.shape[0]
+                )
+                plate_crop = frame[py1:py2, px1:px2]
+                pname = f"{base}_rec{i}_plate.jpg"
+                ppath = IMAGES_DIR / pname
+                if _save_image_safely(plate_crop, ppath):
+                    rec["plate_crop_url"] = f"/evidence/images/{pname}"
+                    rec["plate_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{pname}"
 
     return {
         "source_type": "image",
@@ -175,11 +225,50 @@ async def analyze_video(
                     frame,
                     source_name=file.filename,
                     frame_index=frame_index,
+                    source_type="video",
                 )
                 for rec in records:
                     rec["video_time_sec"] = round(frame_index / fps, 3)
                 all_records.extend(records)
+                # Save annotated frame and per-record crops for reporting.
                 writer.write(annotated)
+                try:
+                    base = f"video_{uuid.uuid4().hex[:10]}_f{frame_index}"
+                    ann_name = f"{base}_annot.jpg"
+                    ann_path = IMAGES_DIR / ann_name
+                    _save_image_safely(annotated, ann_path)
+                    ann_rel = f"/evidence/images/{ann_name}"
+                    ann_abs = f"http://127.0.0.1:8000/evidence/images/{ann_name}"
+
+                    for i, rec in enumerate(records):
+                        rec["frame_image_url"] = ann_rel
+                        rec["frame_image_url_abs"] = ann_abs
+
+                        vb = rec.get("vehicle_bbox")
+                        if vb:
+                            vx1, vy1, vx2, vy2 = pipeline._clip_bbox(
+                                vb, frame.shape[1], frame.shape[0]
+                            )
+                            vehicle_crop = frame[vy1:vy2, vx1:vx2]
+                            vname = f"{base}_rec{i}_vehicle.jpg"
+                            vpath = IMAGES_DIR / vname
+                            if _save_image_safely(vehicle_crop, vpath):
+                                rec["vehicle_crop_url"] = f"/evidence/images/{vname}"
+                                rec["vehicle_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{vname}"
+
+                        pb = rec.get("plate_bbox")
+                        if pb:
+                            px1, py1, px2, py2 = pipeline._clip_bbox(
+                                pb, frame.shape[1], frame.shape[0]
+                            )
+                            plate_crop = frame[py1:py2, px1:px2]
+                            pname = f"{base}_rec{i}_plate.jpg"
+                            ppath = IMAGES_DIR / pname
+                            if _save_image_safely(plate_crop, ppath):
+                                rec["plate_crop_url"] = f"/evidence/images/{pname}"
+                                rec["plate_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{pname}"
+                except Exception:
+                    pass
             else:
                 writer.write(frame)
 

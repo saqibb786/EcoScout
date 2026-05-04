@@ -17,73 +17,107 @@ except ImportError:  # pragma: no cover - handled at runtime if OCR package is m
 
 BBox = list[int]
 
+# COCO class IDs that represent vehicles (from yolov8s.pt).
+COCO_VEHICLE_IDS: set[int] = {2, 3, 5, 7}  # car, motorcycle, bus, truck
+
 
 class ViolationPipeline:
+    """Four-model detection pipeline.
+
+    Models
+    ------
+    1. **Litter model** – single-class detector for litter / littering.
+    2. **Smoke model** – single-class detector for smoke emissions.
+    3. **Vehicle model** – COCO-pretrained YOLOv8 used only for vehicle classes
+       (car, motorcycle, bus, truck).
+    4. **Plate model** – single-class detector for license plates.
+
+    Flow
+    ----
+    For each frame the pipeline:
+    1. Runs the litter and smoke models to collect *violations*.
+    2. Runs the vehicle model to collect nearby vehicles.
+    3. Spatially matches each violation to the best vehicle.
+    4. Crops the matched vehicle region and runs the plate model + OCR.
+    """
+
     def __init__(
         self,
-        violation_model_path: str,
+        litter_model_path: str,
+        smoke_model_path: str,
+        vehicle_model_path: str,
         plate_model_path: str,
-        violation_conf: float = 0.5,
-        plate_conf: float = 0.4,
-        vehicle_recover_conf: float = 0.2,
+        litter_conf: float = 0.35,
+        smoke_conf: float = 0.40,
+        vehicle_conf: float = 0.30,
+        plate_conf: float = 0.30,
+        vehicle_recover_conf: float = 0.15,
     ) -> None:
-        self.violation_model = YOLO(violation_model_path)
+        self.litter_model = YOLO(litter_model_path)
+        self.smoke_model = YOLO(smoke_model_path)
+        self.vehicle_model = YOLO(vehicle_model_path)
         self.plate_model = YOLO(plate_model_path)
-        self.violation_conf = violation_conf
+
+        self.litter_conf = litter_conf
+        self.smoke_conf = smoke_conf
+        self.vehicle_conf = vehicle_conf
         self.plate_conf = plate_conf
         self.vehicle_recover_conf = vehicle_recover_conf
-        self.violation_labels = {"smoke", "littering"}
+
         self._ocr_reader = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def analyze_frame(
         self,
         frame: np.ndarray,
         source_name: str,
         frame_index: int | None = None,
+        source_type: str = "image",
     ) -> tuple[np.ndarray, list[dict[str, Any]]]:
-        result_list = self.violation_model(frame, conf=self.violation_conf)
-        result = result_list[0] if result_list else None
+        """Run the full pipeline on a single BGR frame.
 
-        vehicles: list[dict[str, Any]] = []
+        Returns the annotated frame and a list of violation records.
+        """
+
+        # --- Step 1: Detect violations (litter + smoke) -----------------
         violations: list[dict[str, Any]] = []
 
-        if result is not None:
-            for det in result.boxes:
+        litter_results = self.litter_model(frame, conf=self.litter_conf, verbose=False)
+        if litter_results and litter_results[0] is not None:
+            for det in litter_results[0].boxes:
                 cls_id = int(det.cls)
-                conf = float(det.conf)
-                cls_name = str(self.violation_model.names[cls_id]).lower()
-                bbox = [int(v) for v in det.xyxy[0].tolist()]
+                cls_name = str(self.litter_model.names[cls_id]).lower()
+                violations.append({
+                    "class": cls_name,       # "litter"
+                    "confidence": float(det.conf),
+                    "bbox": [int(v) for v in det.xyxy[0].tolist()],
+                })
 
-                item = {
-                    "class": cls_name,
-                    "confidence": conf,
-                    "bbox": bbox,
-                }
-                if cls_name == "vehicle":
-                    vehicles.append(item)
-                elif cls_name in self.violation_labels:
-                    violations.append(item)
+        smoke_results = self.smoke_model(frame, conf=self.smoke_conf, verbose=False)
+        if smoke_results and smoke_results[0] is not None:
+            for det in smoke_results[0].boxes:
+                cls_id = int(det.cls)
+                cls_name = str(self.smoke_model.names[cls_id]).lower()
+                violations.append({
+                    "class": cls_name,       # "smoke"
+                    "confidence": float(det.conf),
+                    "bbox": [int(v) for v in det.xyxy[0].tolist()],
+                })
 
-        # Recovery pass: if violations exist but no vehicles were detected,
-        # retry vehicle detection at a lower confidence.
-        if violations and not vehicles and self.vehicle_recover_conf < self.violation_conf:
-            recover_results = self.violation_model(
-                frame, conf=self.vehicle_recover_conf)
-            recover_result = recover_results[0] if recover_results else None
-            if recover_result is not None:
-                for det in recover_result.boxes:
-                    cls_id = int(det.cls)
-                    cls_name = str(self.violation_model.names[cls_id]).lower()
-                    if cls_name != "vehicle":
-                        continue
-                    vehicles.append(
-                        {
-                            "class": "vehicle",
-                            "confidence": float(det.conf),
-                            "bbox": [int(v) for v in det.xyxy[0].tolist()],
-                        }
-                    )
+        # --- Step 2: Detect vehicles (COCO subset) ----------------------
+        vehicles: list[dict[str, Any]] = self._detect_vehicles(
+            frame, self.vehicle_conf
+        )
 
+        # Recovery pass: retry at lower confidence if violations exist but
+        # no vehicles were found.
+        if violations and not vehicles and self.vehicle_recover_conf < self.vehicle_conf:
+            vehicles = self._detect_vehicles(frame, self.vehicle_recover_conf)
+
+        # --- Step 3: Match violations → vehicles → plates ---------------
         records: list[dict[str, Any]] = []
         for violation in violations:
             matched_vehicle = self._match_vehicle(violation["bbox"], vehicles)
@@ -108,7 +142,8 @@ class ViolationPipeline:
 
             if matched_vehicle is not None:
                 plate_data = self._detect_plate_and_text(
-                    frame, matched_vehicle["bbox"])
+                    frame, matched_vehicle["bbox"]
+                )
 
             record = {
                 "source": source_name,
@@ -121,6 +156,7 @@ class ViolationPipeline:
                 "vehicle_confidence": round(matched_vehicle["confidence"], 4)
                 if matched_vehicle
                 else None,
+                "vehicle_class": matched_vehicle["class"] if matched_vehicle else None,
                 "match_strategy": match_strategy if matched_vehicle else "none",
                 "plate_bbox": plate_data["plate_bbox"] if plate_data else None,
                 "plate_confidence": plate_data["plate_confidence"] if plate_data else None,
@@ -131,8 +167,38 @@ class ViolationPipeline:
             records.append(record)
 
         annotated = self._annotate_frame(
-            frame.copy(), vehicles, violations, records)
+            frame.copy(), vehicles, violations, records
+        )
         return annotated, records
+
+    # ------------------------------------------------------------------
+    # Vehicle detection (COCO-based)
+    # ------------------------------------------------------------------
+
+    def _detect_vehicles(
+        self, frame: np.ndarray, conf: float
+    ) -> list[dict[str, Any]]:
+        """Run the COCO vehicle model and return only vehicle-class boxes."""
+        vehicles: list[dict[str, Any]] = []
+        results = self.vehicle_model(frame, conf=conf, verbose=False)
+        if not results or results[0] is None:
+            return vehicles
+
+        for det in results[0].boxes:
+            cls_id = int(det.cls)
+            if cls_id not in COCO_VEHICLE_IDS:
+                continue
+            cls_name = str(self.vehicle_model.names[cls_id]).lower()
+            vehicles.append({
+                "class": cls_name,
+                "confidence": float(det.conf),
+                "bbox": [int(v) for v in det.xyxy[0].tolist()],
+            })
+        return vehicles
+
+    # ------------------------------------------------------------------
+    # Vehicle ↔ Violation matching
+    # ------------------------------------------------------------------
 
     def _match_vehicle(
         self,
@@ -157,6 +223,10 @@ class ViolationPipeline:
 
         return best_vehicle
 
+    # ------------------------------------------------------------------
+    # Plate detection + OCR
+    # ------------------------------------------------------------------
+
     def _detect_plate_and_text(self, frame: np.ndarray, vehicle_bbox: BBox) -> dict[str, Any] | None:
         vx1, vy1, vx2, vy2 = self._clip_bbox(
             vehicle_bbox, frame.shape[1], frame.shape[0])
@@ -164,7 +234,7 @@ class ViolationPipeline:
         if vehicle_crop.size == 0:
             return None
 
-        plate_results = self.plate_model(vehicle_crop, conf=self.plate_conf)
+        plate_results = self.plate_model(vehicle_crop, conf=self.plate_conf, verbose=False)
         plate_result = plate_results[0] if plate_results else None
         abs_plate_bbox = None
         plate_conf = None
@@ -279,7 +349,7 @@ class ViolationPipeline:
         return best
 
     def _detect_plate_global(self, frame: np.ndarray, vehicle_bbox: BBox) -> dict[str, Any] | None:
-        plate_results = self.plate_model(frame, conf=self.plate_conf)
+        plate_results = self.plate_model(frame, conf=self.plate_conf, verbose=False)
         plate_result = plate_results[0] if plate_results else None
         if plate_result is None or len(plate_result.boxes) == 0:
             return None
@@ -304,6 +374,10 @@ class ViolationPipeline:
                 }
 
         return best_item
+
+    # ------------------------------------------------------------------
+    # OCR engine
+    # ------------------------------------------------------------------
 
     def _ocr_plate(self, plate_crop: np.ndarray) -> tuple[str | None, float | None]:
         """Pakistani plate OCR engine (number-first).
@@ -426,6 +500,10 @@ class ViolationPipeline:
         masked = f"{compact[:2]}{'*' * (len(compact) - 4)}{compact[-2:]}"
         return masked
 
+    # ------------------------------------------------------------------
+    # Annotation / drawing
+    # ------------------------------------------------------------------
+
     def _annotate_frame(
         self,
         frame: np.ndarray,
@@ -433,13 +511,15 @@ class ViolationPipeline:
         violations: list[dict[str, Any]],
         records: list[dict[str, Any]],
     ) -> np.ndarray:
+        # Draw vehicle boxes (light blue)
         for vehicle in vehicles:
             x1, y1, x2, y2 = vehicle["bbox"]
             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 180, 0), 2)
-            label = f"vehicle {vehicle['confidence']:.2f}"
+            label = f"{vehicle['class']} {vehicle['confidence']:.2f}"
             cv2.putText(frame, label, (x1, max(20, y1 - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 180, 0), 2)
 
+        # Draw violation boxes (red)
         for violation in violations:
             x1, y1, x2, y2 = violation["bbox"]
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
@@ -447,6 +527,7 @@ class ViolationPipeline:
             cv2.putText(frame, label, (x1, max(20, y1 - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
 
+        # Draw matched vehicle highlights + plate info (green)
         for record in records:
             vehicle_bbox = record.get("vehicle_bbox")
             if vehicle_bbox:
@@ -464,6 +545,10 @@ class ViolationPipeline:
                 cv2.rectangle(frame, (px1, py1), (px2, py2), (180, 0, 255), 2)
 
         return frame
+
+    # ------------------------------------------------------------------
+    # Geometry helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _iou(a: BBox, b: BBox) -> float:
