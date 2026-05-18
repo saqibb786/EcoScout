@@ -12,10 +12,10 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pipeline import ViolationPipeline
+from app.core.pipeline import ViolationPipeline
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 EVIDENCE_DIR = BASE_DIR / "evidence"
 IMAGES_DIR = EVIDENCE_DIR / "images"
 VIDEOS_DIR = EVIDENCE_DIR / "videos"
@@ -36,10 +36,10 @@ for folder in (IMAGES_DIR, VIDEOS_DIR, UPLOAD_DIR):
     folder.mkdir(parents=True, exist_ok=True)
 
 pipeline = ViolationPipeline(
-    litter_model_path=str(BASE_DIR / "litter_best.pt"),
-    smoke_model_path=str(BASE_DIR / "smoke_best.pt"),
-    vehicle_model_path=str(BASE_DIR / "yolov8s.pt"),
-    plate_model_path=str(BASE_DIR / "plate_best.pt"),
+    litter_model_path=str(BASE_DIR / "models" / "litter_best.pt"),
+    smoke_model_path=str(BASE_DIR / "models" / "smoke_best.pt"),
+    vehicle_model_path=str(BASE_DIR / "models" / "yolov8s.pt"),
+    plate_model_path=str(BASE_DIR / "models" / "plate_best.pt"),
     litter_conf=_env_float("LITTER_CONF", 0.35),
     smoke_conf=_env_float("SMOKE_CONF", 0.40),
     vehicle_conf=_env_float("VEHICLE_CONF", 0.30),

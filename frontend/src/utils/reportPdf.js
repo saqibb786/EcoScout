@@ -187,7 +187,7 @@ async function drawRecordBoundingBoxes(imageDataUrl, record) {
       drawBox(
         record?.vehicle_bbox,
         "#20b779",
-        `vehicle ${fmtPercent(record?.vehicle_confidence)}`,
+        `${record?.vehicle_class || "vehicle"} ${fmtPercent(record?.vehicle_confidence)}`,
       );
       drawBox(record?.plate_bbox, "#d6a800", `plate ${fmtPlate(record)}`);
 
