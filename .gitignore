@@ -35,3 +35,7 @@ Thumbs.db
 # Environment files
 .env
 .env.*
+
+backend/supabase_setup.sql
+
+docs/
