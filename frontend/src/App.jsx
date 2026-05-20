@@ -109,7 +109,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState('');
-  const [credentials, setCredentials] = useState({ username: 'admin', password: '' });
+  const [credentials, setCredentials] = useState({ username: '', password: '' });
 
   const fetchHistory = async () => {
     const response = await fetch(`${API_BASE}/history`, { credentials: 'include' });
@@ -235,7 +235,7 @@ function App() {
         <form onSubmit={handleLogin} className="auth-card" style={{ width: 'min(100%, 420px)', padding: 28, borderRadius: 24, border: '1px solid rgba(178, 202, 194, 0.18)', background: 'linear-gradient(180deg, rgba(15, 23, 22, 0.98), rgba(9, 14, 13, 0.98))', color: 'var(--text-primary)', boxShadow: 'var(--shadow-lg)' }}>
           <p style={{ letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--accent-primary)', marginTop: 0 }}>EcoScout Command Center</p>
           <h1 style={{ margin: '8px 0 6px', fontSize: '2rem' }}>Admin Login</h1>
-          <p style={{ marginTop: 0, color: 'var(--text-secondary)' }}>Use the hardcoded admin credentials to access analysis history and uploads.</p>
+          <p style={{ marginTop: 0, color: 'var(--text-secondary)' }}>Enter your admin credentials to access analysis history and uploads.</p>
           <label style={{ display: 'block', marginTop: 18 }}>
             <span style={{ display: 'block', marginBottom: 6, color: 'var(--text-secondary)' }}>Username</span>
             <input
