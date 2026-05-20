@@ -231,9 +231,6 @@ Create a `.env` file in the `backend/` directory:
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIs...  # service_role key (NOT anon key)
 
-# Admin credentials
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
 ```
 
 > **⚠️ Important:** The `SUPABASE_SERVICE_KEY` must be the **service_role** (secret) key, not the anon/publishable key. Find it in your Supabase Dashboard → **Settings** → **API** → **service_role**.
@@ -440,7 +437,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 <div align="center">
 
-**Built with 💚 by [SAQIB](https://github.com/saqibb786)**
+**Built by [SAQIB](https://github.com/saqibb786) and [ABDULLAH](https://github.com/abdullahnaveed786)**
 
 *EcoScout — Protecting the environment through intelligent surveillance*
 
