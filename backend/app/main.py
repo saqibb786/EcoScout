@@ -45,8 +45,8 @@ IMAGES_DIR = EVIDENCE_DIR / "images"
 VIDEOS_DIR = EVIDENCE_DIR / "videos"
 UPLOAD_DIR = BASE_DIR / "temp" / "uploads"
 
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 SESSION_COOKIE = "ecoscout_session"
 ACTIVE_SESSIONS: set[str] = set()
 PROTECTED_PATHS = {"/analyze/image", "/analyze/video", "/history", "/analyses"}
