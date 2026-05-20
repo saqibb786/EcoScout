@@ -72,6 +72,7 @@ const UploadMedia = ({ onUploadSuccess }) => {
         try {
             const response = await axios.post(`${API_BASE}${endpoint}`, formData, {
                 timeout: 180000,
+                withCredentials: true,
             });
 
             if (response.data) {
@@ -83,6 +84,11 @@ const UploadMedia = ({ onUploadSuccess }) => {
             }
         } catch (err) {
             console.error("Upload failed:", err);
+
+            if (err.response?.status === 401) {
+                setError('Session expired. Please log in again.');
+                return;
+            }
 
             if (err.code === 'ECONNABORTED') {
                 setError('Analysis timed out. Please try a smaller file or increase frame stride for video.');

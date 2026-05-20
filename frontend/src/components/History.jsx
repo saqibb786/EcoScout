@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Trash2, View, ChevronRight, FileDown, CheckSquare, Square, FileText } from 'lucide-react';
+import { View, ChevronRight, FileDown, CheckSquare, Square, FileText } from 'lucide-react';
 import './History.css';
 import { exportCaseReportPdf } from '../utils/reportPdf';
 
@@ -13,28 +13,13 @@ function asSourceUrl(pathOrUrl) {
   return `${API_BASE}${pathOrUrl}`;
 }
 
-const History = ({ history, onView, onDelete }) => {
+const History = ({ history, onView }) => {
   const [selectedIds, setSelectedIds] = useState([]);
 
   const selectedItems = useMemo(
     () => history.filter((item) => selectedIds.includes(item.id)),
     [history, selectedIds],
   );
-
-  const handleBulkDelete = () => {
-    if (selectedIds.length === 0) return;
-    if (window.confirm(`Delete ${selectedIds.length} selected item(s)? This cannot be undone.`)) {
-      onDelete(selectedIds);
-      setSelectedIds([]);
-    }
-  };
-
-  const handleDeleteAll = () => {
-    if (window.confirm('Delete all history? This cannot be undone.')) {
-      onDelete(history.map(item => item.id));
-      setSelectedIds([]);
-    }
-  };
 
   const toggleSelected = (id) => {
     setSelectedIds((prev) => (
@@ -72,14 +57,6 @@ const History = ({ history, onView, onDelete }) => {
               <FileText size={16} />
               Import as Report
             </button>
-            <button className="btn-delete-selected" onClick={handleBulkDelete} disabled={selectedIds.length === 0}>
-              <Trash2 size={16} />
-              Delete Selected
-            </button>
-            <button className="btn-delete-all" onClick={handleDeleteAll}>
-              <Trash2 size={16} />
-              Clear All
-            </button>
           </div>
         </div>
       )}
@@ -108,11 +85,20 @@ const History = ({ history, onView, onDelete }) => {
               </div>
 
               <div className="history-thumbnail">
-                {asSourceUrl(item.annotated_image_url || item.annotated_image) ? (
-                  <img
-                    src={asSourceUrl(item.annotated_image_url || item.annotated_image)}
-                    alt={item.source_name || 'History thumbnail'}
-                  />
+                {asSourceUrl(item.detection_image_url || item.annotated_image_url || item.annotated_image) ? (
+                  item.source_type === 'video' ? (
+                    <video
+                      src={asSourceUrl(item.detection_image_url || item.annotated_image_url || item.annotated_image)}
+                      controls={false}
+                      muted
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={asSourceUrl(item.detection_image_url || item.annotated_image_url || item.annotated_image)}
+                      alt={item.source_name || 'History thumbnail'}
+                    />
+                  )
                 ) : (
                   <div className="history-thumb-fallback">
                     <span>{(item.source_type || 'item').toUpperCase()}</span>
@@ -126,20 +112,32 @@ const History = ({ history, onView, onDelete }) => {
                     {item.source_type.toUpperCase()}
                   </span>
                   <span className="timestamp">
-                    {new Date(item.createdAt).toLocaleString()}
+                    {new Date(item.timestamp_real || item.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <h4>{item.source_name || 'Untitled'}</h4>
+                <h4>{item.violation_name || item.source_name || 'Untitled'}</h4>
                 <div className="card-stats">
-                  <span>{item.violations_found} violations</span>
+                  <span>{item.violations_found} detections</span>
                   {item.records && <span>{item.records.length} records</span>}
+                </div>
+                <div className="card-summary">
+                  <span>{item.source_name || 'Unknown source'}</span>
+                  {item.violation_name && item.violation_name !== 'unknown' && (
+                    <span className="violation-tag">{item.violation_name}</span>
+                  )}
                 </div>
               </div>
               <div className="card-actions">
                 <button
                   className="btn-export"
-                  onClick={() => exportCaseReportPdf(item)}
-                  title="Export PDF report"
+                  onClick={() => {
+                    if (item.report_url) {
+                      window.open(item.report_url, '_blank');
+                    } else {
+                      exportCaseReportPdf(item);
+                    }
+                  }}
+                  title={item.report_url ? 'Download saved report' : 'Generate & download report'}
                 >
                   <FileDown size={18} />
                 </button>
@@ -149,13 +147,6 @@ const History = ({ history, onView, onDelete }) => {
                   title="View results"
                 >
                   <ChevronRight size={20} />
-                </button>
-                <button 
-                  className="btn-delete"
-                  onClick={() => onDelete([item.id])}
-                  title="Delete"
-                >
-                  <Trash2 size={20} />
                 </button>
               </div>
             </div>
