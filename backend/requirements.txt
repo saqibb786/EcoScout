@@ -5,3 +5,5 @@ easyocr
 ultralytics
 opencv-python
 numpy
+supabase
+python-dotenv

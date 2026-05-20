@@ -499,7 +499,7 @@ export async function exportCaseReportPdf(inputCase) {
         fmtPlate(r),
         fmtPercent(r.ocr_confidence),
         r.match_strategy || "-",
-        r.video_time_sec !== undefined
+        typeof r.video_time_sec === 'number'
           ? `${r.video_time_sec.toFixed(2)}s`
           : "Image",
       ]),
@@ -632,7 +632,7 @@ export async function exportCaseReportPdf(inputCase) {
         `Vehicle Conf: ${fmtPercent(item.record.vehicle_confidence)}`,
         `Plate Conf: ${fmtPercent(item.record.plate_confidence)}`,
         `Strategy: ${item.record.match_strategy || "-"}`,
-        `Time: ${item.record.video_time_sec !== undefined ? `${item.record.video_time_sec.toFixed(2)}s` : "Image"}`,
+        `Time: ${typeof item.record.video_time_sec === 'number' ? `${item.record.video_time_sec.toFixed(2)}s` : "Image"}`,
       ];
       notes.forEach((line, i) => {
         doc.text(line, cardX + 378, cardY + 66 + i * 14);
@@ -810,5 +810,30 @@ export async function exportCaseReportPdf(inputCase) {
     /[^a-z0-9-_]+/gi,
     "_",
   );
-  doc.save(`ecoscout_report_${safeName}_${Date.now()}.pdf`);
+  const pdfFileName = `ecoscout_report_${safeName}_${Date.now()}.pdf`;
+
+  // Save locally for the user
+  doc.save(pdfFileName);
+
+  // Upload to Supabase Storage for persistent access
+  const analysisId = caseData.id || inputCase?.id || inputCase?.analysis_id;
+  if (analysisId && !String(analysisId).startsWith('case-')) {
+    try {
+      const pdfBlob = doc.output('blob');
+      const formData = new FormData();
+      formData.append('file', pdfBlob, pdfFileName);
+      const resp = await fetch(`${API_BASE}/analyses/${analysisId}/report`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      if (resp.ok) {
+        const result = await resp.json();
+        return result.report_url || null;
+      }
+    } catch (err) {
+      console.warn('Could not upload report to Supabase:', err);
+    }
+  }
+  return null;
 }

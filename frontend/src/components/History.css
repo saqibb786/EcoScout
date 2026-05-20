@@ -228,6 +228,31 @@
   flex-wrap: wrap;
 }
 
+.card-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+  flex-wrap: wrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.violation-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  background: linear-gradient(135deg, rgba(232, 121, 56, 0.18), rgba(220, 80, 60, 0.14));
+  color: #f0a060;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+}
+
+
 /* Card Actions */
 .card-actions {
   display: flex;

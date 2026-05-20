@@ -7,23 +7,38 @@ import History from './components/History';
 import AboutUs from './components/AboutUs';
 import './App.css';
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 const HISTORY_KEY = 'ecoscout_cases_v2';
 
 function normalizeCase(result) {
-  const records = result?.records || [];
-  const createdAt = records[0]?.timestamp || new Date().toISOString();
+  const records = (result?.detections || result?.records || []).map((record) => ({
+    ...record,
+    violation_bbox: record.violation_bbox || record.bbox || null,
+    violation_confidence: record.violation_confidence ?? record.confidence ?? null,
+    violation: record.violation || record.class_name || 'unknown',
+    plate_text_raw: record.plate_text_raw || record.ocr_text || null,
+    plate_text: record.plate_text || record.ocr_text || null,
+    ocr_confidence: record.ocr_confidence ?? null,
+  }));
+  const createdAt = result?.timestamp_real || result?.createdAt || result?.created_at || records[0]?.timestamp || new Date().toISOString();
 
   return {
-    id: result?.id || `case-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: result?.id || result?.analysis_id || `case-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     createdAt,
-    source_type: result?.source_type || 'image',
-    source_name: result?.source_name || 'unknown',
-    violations_found: result?.violations_found || 0,
+    source_type: result?.media_type || result?.source_type || 'image',
+    source_name: result?.source_name || result?.detection_summary?.source_name || 'unknown',
+    violations_found: result?.violations_found ?? result?.total_detections ?? 0,
     total_frames: result?.total_frames,
     frame_stride: result?.frame_stride,
     records,
-    annotated_image_url: result?.annotated_image_url || result?.annotated_image || null,
-    annotated_video_url: result?.annotated_video_url || result?.annotated_video || null,
+    media_url: result?.media_url || null,
+    detection_image_url: result?.detection_image_url || result?.annotated_image_url || result?.annotated_video_url || null,
+    annotated_image_url: result?.detection_image_url || result?.annotated_image_url || result?.annotated_image || null,
+    annotated_video_url: result?.detection_image_url || result?.annotated_video_url || result?.annotated_video || null,
+    violation_name: result?.violation_name || result?.detection_summary?.violation_name || 'unknown',
+    timestamp_real: result?.timestamp_real || null,
+    detection_summary: result?.detection_summary || null,
+    report_url: result?.report_url || null,
     raw: result,
   };
 }
@@ -91,34 +106,72 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [latestResults, setLatestResults] = useState(null);
   const [history, setHistory] = useState([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [credentials, setCredentials] = useState({ username: 'admin', password: '' });
 
-  // Load history from localStorage
+  const fetchHistory = async () => {
+    const response = await fetch(`${API_BASE}/history`, { credentials: 'include' });
+    if (response.status === 401) {
+      throw new Error('Not authenticated');
+    }
+    const data = await response.json();
+    const items = data.history || data.analyses || [];
+    setHistory(items.map((item) => normalizeCase(item)));
+  };
+
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(HISTORY_KEY);
-      if (saved) {
-        setHistory(JSON.parse(saved));
+    const checkAuth = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+        const data = await response.json();
+        if (data.authenticated) {
+          setIsAuthenticated(true);
+          await fetchHistory();
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.warn('Could not verify authentication', error);
+        setIsAuthenticated(false);
+      } finally {
+        setAuthLoading(false);
       }
-    } catch (error) {
-      console.warn('Could not restore EcoScout history', error);
-    }
+    };
+    checkAuth();
   }, []);
-
-  // Persist history to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    } catch (error) {
-      console.warn('Could not persist EcoScout history', error);
-    }
-  }, [history]);
 
   // Force dark mode globally.
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'dark');
   }, []);
 
-  const handleUploadSuccess = (data) => {
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setAuthError('');
+    try {
+      const response = await fetch(`${API_BASE}/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || 'Login failed');
+      }
+
+      setIsAuthenticated(true);
+      await fetchHistory();
+      setActiveTab('dashboard');
+    } catch (error) {
+      setAuthError(error.message || 'Login failed');
+    }
+  };
+
+  const handleUploadSuccess = async (data) => {
     const normalizedCase = normalizeCase(data);
     setLatestResults(normalizedCase);
     setHistory((prev) => {
@@ -126,19 +179,17 @@ function App() {
       return updated.slice(0, 50); // Keep max 50 cases
     });
     setActiveTab('results');
+    // Re-fetch from Supabase to ensure history is fully in sync
+    try {
+      await fetchHistory();
+    } catch (err) {
+      console.warn('Could not refresh history after upload', err);
+    }
   };
 
   const handleViewResult = (result) => {
     setLatestResults(normalizeCase(result));
     setActiveTab('results');
-  };
-
-  const handleDeleteHistory = (ids) => {
-    setHistory((prev) => prev.filter((item) => !ids.includes(item.id)));
-    if (latestResults && ids.includes(latestResults.id)) {
-      setLatestResults(null);
-      setActiveTab('dashboard');
-    }
   };
 
   // Page titles and headers
@@ -167,6 +218,50 @@ function App() {
 
   const currentHeader = pageHeaders[activeTab] || pageHeaders.dashboard;
 
+  if (authLoading) {
+    return (
+      <div className="auth-shell" style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24 }}>
+        <div className="auth-card" style={{ width: 'min(100%, 420px)', padding: 28, borderRadius: 24, border: '1px solid rgba(178, 202, 194, 0.18)', background: 'rgba(10, 16, 15, 0.96)', color: 'var(--text-primary)' }}>
+          <p style={{ letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginTop: 0 }}>EcoScout</p>
+          <h2 style={{ margin: '8px 0 0' }}>Checking session...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="auth-shell" style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24 }}>
+        <form onSubmit={handleLogin} className="auth-card" style={{ width: 'min(100%, 420px)', padding: 28, borderRadius: 24, border: '1px solid rgba(178, 202, 194, 0.18)', background: 'linear-gradient(180deg, rgba(15, 23, 22, 0.98), rgba(9, 14, 13, 0.98))', color: 'var(--text-primary)', boxShadow: 'var(--shadow-lg)' }}>
+          <p style={{ letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--accent-primary)', marginTop: 0 }}>EcoScout Command Center</p>
+          <h1 style={{ margin: '8px 0 6px', fontSize: '2rem' }}>Admin Login</h1>
+          <p style={{ marginTop: 0, color: 'var(--text-secondary)' }}>Use the hardcoded admin credentials to access analysis history and uploads.</p>
+          <label style={{ display: 'block', marginTop: 18 }}>
+            <span style={{ display: 'block', marginBottom: 6, color: 'var(--text-secondary)' }}>Username</span>
+            <input
+              value={credentials.username}
+              onChange={(e) => setCredentials((prev) => ({ ...prev, username: e.target.value }))}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 14, border: '1px solid rgba(178, 202, 194, 0.18)', background: 'rgba(8, 14, 13, 0.92)', color: 'var(--text-primary)' }}
+            />
+          </label>
+          <label style={{ display: 'block', marginTop: 16 }}>
+            <span style={{ display: 'block', marginBottom: 6, color: 'var(--text-secondary)' }}>Password</span>
+            <input
+              type="password"
+              value={credentials.password}
+              onChange={(e) => setCredentials((prev) => ({ ...prev, password: e.target.value }))}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 14, border: '1px solid rgba(178, 202, 194, 0.18)', background: 'rgba(8, 14, 13, 0.92)', color: 'var(--text-primary)' }}
+            />
+          </label>
+          {authError && <p style={{ color: '#ff8a8a', marginTop: 14 }}>{authError}</p>}
+          <button type="submit" className="upload-btn" style={{ width: '100%', marginTop: 18 }}>
+            Log In
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -194,7 +289,6 @@ function App() {
             <History
               history={history}
               onView={handleViewResult}
-              onDelete={handleDeleteHistory}
             />
           )}
 

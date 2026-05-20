@@ -129,7 +129,7 @@ function DetectionCard({ detection, index, sourceImageUrl }) {
                     </dl>
 
                     <div className="analysis-meta-row">
-                        {detection.video_time_sec !== undefined ? `Video Time: ${detection.video_time_sec.toFixed(2)}s` : 'Image Evidence'}
+                        {typeof detection.video_time_sec === 'number' ? `Video Time: ${detection.video_time_sec.toFixed(2)}s` : 'Image Evidence'}
                         {detection.timestamp ? ` · ${new Date(detection.timestamp).toLocaleString()}` : ''}
                     </div>
                 </div>
