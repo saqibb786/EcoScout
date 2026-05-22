@@ -31,6 +31,7 @@ from pydantic import BaseModel
 from app.core.pipeline import ViolationPipeline
 from services.supabase_client import get_client, ensure_media_bucket
 from services.storage import upload_media
+from services.groq_vision import analyze_with_groq
 
 logging.basicConfig(
     level=logging.INFO,
@@ -238,6 +239,7 @@ def _analysis_to_history_item(analysis: dict[str, Any], detections: list[dict[st
         "violation_name": analysis.get("violation_name") or detection_summary.get("violation_name") or _dominant_violation_name(detections),
         "detection_summary": detection_summary,
         "report_url": analysis.get("report_url"),
+        "groq_analysis": detection_summary.get("groq_analysis"),
         "detections": [_normalize_detection_row(row) for row in detections],
         "records": [_normalize_detection_row(row) for row in detections],
         "raw": analysis,
@@ -338,6 +340,16 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
         "violation_name": violation_name,
     }
 
+    # --- GROQ Vision enrichment (additive — does not affect existing pipeline) ---
+    try:
+        groq_analysis = await analyze_with_groq(data, content_type=original_ct)
+        if groq_analysis:
+            detection_summary["groq_analysis"] = groq_analysis
+            logger.info("analyze_image: GROQ enrichment returned %d violations", len(groq_analysis.get("violations", [])))
+    except Exception as groq_exc:
+        logger.warning("analyze_image: GROQ enrichment failed (non-fatal): %s", groq_exc)
+    # --- End GROQ enrichment ---
+
     supabase = get_client()
     if not supabase:
         logger.error("analyze_image: Supabase client not configured — check SUPABASE_URL and SUPABASE_SERVICE_KEY env vars")
@@ -406,6 +418,7 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
         "source_type": "image",
         "source_name": file.filename,
         "violations_found": len(records),
+        "groq_analysis": detection_summary.get("groq_analysis"),
     }
 
 
@@ -534,6 +547,23 @@ async def analyze_video(
         "violation_name": violation_name,
     }
 
+    # --- GROQ Vision enrichment for video (analyze first frame) ---
+    try:
+        _groq_frame_bytes = None
+        _gcap = cv2.VideoCapture(str(upload_path))
+        _gok, _gframe = _gcap.read()
+        _gcap.release()
+        if _gok and _gframe is not None:
+            _, _gbuf = cv2.imencode(".jpg", _gframe)
+            _groq_frame_bytes = _gbuf.tobytes()
+        groq_analysis = await analyze_with_groq(_groq_frame_bytes) if _groq_frame_bytes else None
+        if groq_analysis:
+            detection_summary["groq_analysis"] = groq_analysis
+            logger.info("analyze_video: GROQ enrichment returned %d violations", len(groq_analysis.get("violations", [])))
+    except Exception as groq_exc:
+        logger.warning("analyze_video: GROQ enrichment failed (non-fatal): %s", groq_exc)
+    # --- End GROQ enrichment ---
+
     supabase = get_client()
     if not supabase:
         logger.error("analyze_video: Supabase client not configured — check env vars")
@@ -609,6 +639,7 @@ async def analyze_video(
         "total_frames": frame_index,
         "frame_stride": frame_stride,
         "violations_found": len(all_records),
+        "groq_analysis": detection_summary.get("groq_analysis"),
     }
 
 
