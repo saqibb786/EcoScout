@@ -39,6 +39,7 @@ function normalizeCase(result) {
     timestamp_real: result?.timestamp_real || null,
     detection_summary: result?.detection_summary || null,
     report_url: result?.report_url || null,
+    groq_analysis: result?.groq_analysis || result?.detection_summary?.groq_analysis || null,
     raw: result,
   };
 }

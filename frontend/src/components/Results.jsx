@@ -134,8 +134,61 @@ function DetectionCard({ detection, index, sourceImageUrl }) {
                     </div>
                 </div>
             </div>
-            {!hasPlate && <div className="record-warning">Plate could not be detected in this record.</div>}
         </article>
+    );
+}
+
+function ViolationResults({ analysisData }) {
+    if (!analysisData || !Array.isArray(analysisData.violations) || analysisData.violations.length === 0) {
+        return null;
+    }
+
+    const mapViolationType = (type) => {
+        if (!type) return 'Unknown Violation';
+        if (type === 'smoke_emission' || type.toLowerCase().includes('smoke')) return 'Smoke Detection';
+        if (type === 'littering' || type.toLowerCase().includes('litter')) return 'Vehicle Littering Detection';
+        return type;
+    };
+
+    return (
+        <div className="detections-list-expanded">
+            {analysisData.violations.map((v, i) => {
+                const violationLabel = mapViolationType(v.violation_type);
+                const plateText = v.number_plate || 'Not detected';
+                const cardClass = (v.violation_type || '').toLowerCase().includes('smoke') ? 'smoke'
+                    : (v.violation_type || '').toLowerCase().includes('litter') ? 'littering'
+                    : '';
+
+                return (
+                    <article key={i} className={`analysis-record-card ${cardClass}`}>
+                        <div className="analysis-record-header">
+                            <div>
+                                <span className="record-kicker">Record #{i + 1}</span>
+                                <h5>{violationLabel}</h5>
+                            </div>
+                            <span className="record-confidence">{Math.round((v.confidence || 0) * 100)}% confidence</span>
+                        </div>
+
+                        <div className="analysis-record-layout">
+                            <div className="analysis-record-body">
+                                <div className="plate-identity-block">
+                                    <span className="info-label">Number Plate</span>
+                                    <div className="plate-display">
+                                        <span className="plate-text-display">{plateText}</span>
+                                    </div>
+                                </div>
+
+                                <dl className="analysis-detail-list">
+                                    <div className="detail-row"><dt>Vehicle Confidence</dt><dd>{fmtPercent(v.confidence)}</dd></div>
+                                    <div className="detail-row"><dt>Plate Confidence</dt><dd>{v.number_plate ? fmtPercent(v.confidence) : '-'}</dd></div>
+                                    <div className="detail-row"><dt>OCR Confidence</dt><dd>{v.number_plate ? fmtPercent(v.confidence) : '-'}</dd></div>
+                                </dl>
+                            </div>
+                        </div>
+                    </article>
+                );
+            })}
+        </div>
     );
 }
 
@@ -152,9 +205,11 @@ const Results = ({ result }) => {
         );
     }
 
-    const { annotated_image_url, records = [] } = result;
+    const { annotated_image_url } = result;
     const annotatedUrl = asSourceUrl(result.annotated_video_url || result.annotated_image_url || annotated_image_url);
     const hasAnnotatedMedia = Boolean(annotatedUrl);
+    const analysisData = result.groq_analysis || result.detection_summary?.groq_analysis || null;
+    const hasViolations = analysisData && Array.isArray(analysisData.violations) && analysisData.violations.length > 0;
 
     return (
         <div className="results-container">
@@ -188,23 +243,14 @@ const Results = ({ result }) => {
                 </div>
 
                 <div className="data-section">
-                    <h4>Detected Violations & Objects</h4>
+                    <h4>Detected Violations</h4>
 
-                    {records.length === 0 ? (
+                    <ViolationResults analysisData={analysisData} />
+
+                    {!hasViolations && (
                         <div className="no-detections">
                             <CheckCircle size={24} color="#22c55e" />
                             <p>No violations or objects detected.</p>
-                        </div>
-                    ) : (
-                        <div className="detections-list-expanded">
-                            {records.map((det, index) => (
-                                <DetectionCard
-                                    key={index}
-                                    detection={det}
-                                    index={index}
-                                    sourceImageUrl={asSourceUrl(det.frame_image_url || result.annotated_image_url || result.annotated_image)}
-                                />
-                            ))}
                         </div>
                     )}
                 </div>
@@ -214,3 +260,4 @@ const Results = ({ result }) => {
 };
 
 export default Results;
+

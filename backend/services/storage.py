@@ -137,4 +137,24 @@ def upload_media(
 
     except Exception as exc:
         logger.error("upload_media: failed to upload '%s': %s", key, exc, exc_info=True)
+        # Retry once with a fresh client in case the old one became stale
+        try:
+            from services.supabase_client import _init_client
+            import services.supabase_client as _sc
+            _sc._initialised = False
+            _sc._client = None
+            fresh = _init_client()
+            if fresh:
+                logger.info("upload_media: retrying with fresh client...")
+                bucket = fresh.storage.from_("media")
+                bucket.upload(
+                    key, data,
+                    file_options={"content-type": content_type, "upsert": "true"},
+                )
+                public = bucket.get_public_url(key)
+                if isinstance(public, str) and public:
+                    logger.info("upload_media: retry succeeded → %s", public)
+                    return public
+        except Exception as retry_exc:
+            logger.error("upload_media: retry also failed: %s", retry_exc)
         return None

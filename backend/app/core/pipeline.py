@@ -251,8 +251,8 @@ class ViolationEngine:
                 else:
                     plate_data = self._fallback_local_plate(frame, vehicle["bbox"], vehicle.get("id"))
             else:
-                # False positive: violation doesn't match any vehicle spatially
-                continue
+                # No vehicle matched — keep the violation with null vehicle data
+                match_strategy = "unmatched"
 
             record = {
                 "source": source_name,
@@ -261,10 +261,10 @@ class ViolationEngine:
                 "violation": viol["class"],
                 "violation_confidence": round(viol["confidence"], 4),
                 "violation_bbox": viol["bbox"],
-                "vehicle_id": vehicle.get("id"),
-                "vehicle_bbox": vehicle["bbox"],
-                "vehicle_confidence": round(vehicle["confidence"], 4) if vehicle["confidence"] else None,
-                "vehicle_class": vehicle["class"],
+                "vehicle_id": vehicle.get("id") if vehicle else None,
+                "vehicle_bbox": vehicle["bbox"] if vehicle else None,
+                "vehicle_confidence": round(vehicle["confidence"], 4) if vehicle and vehicle.get("confidence") else None,
+                "vehicle_class": vehicle["class"] if vehicle else None,
                 "match_strategy": match_strategy,
                 "plate_bbox": plate_data["bbox"] if plate_data else None,
                 "plate_confidence": round(plate_data["conf"], 4) if plate_data and plate_data["conf"] else None,
