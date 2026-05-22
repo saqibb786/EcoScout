@@ -246,55 +246,168 @@
   border-radius: var(--radius-md);
 }
 
-.analysis-progress {
+/* ── Processing Overlay ─────────────────────────────────────────── */
+.processing-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(95, 200, 162, 0.22);
-  background: rgba(16, 29, 26, 0.9);
+  justify-content: center;
+  animation: overlayFadeIn 0.4s ease both;
 }
 
-.analysis-loader {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 48px;
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-.analysis-loader span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  opacity: 0.3;
-  animation: analysisPulse 1s ease-in-out infinite;
+.processing-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 14, 11, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
-.analysis-loader span:nth-child(2) {
-  animation-delay: 0.16s;
-}
-
-.analysis-loader span:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-.analysis-copy {
+.processing-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 28px;
+  padding: 44px 48px;
+  border-radius: 24px;
+  border: 1px solid rgba(71, 215, 170, 0.15);
+  background: rgba(10, 20, 17, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  animation: cardSlideUp 0.45s ease both;
+  max-width: 400px;
+  width: 88vw;
 }
 
-.analysis-copy strong {
-  font-size: 0.9rem;
+@keyframes cardSlideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Spinner (single conic-gradient, zero stutter) ────────────── */
+.processing-scanner {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.processing-scanner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  padding: 2.5px;
+  background: conic-gradient(transparent 30%, var(--accent-primary));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+  animation: spinSmooth 1.1s linear infinite;
+}
+
+@keyframes spinSmooth {
+  to { transform: rotate(360deg); }
+}
+
+.scanner-ring,
+.scanner-ring.ring-2,
+.scanner-pulse {
+  display: none;
+}
+
+.scanner-icon {
+  color: var(--accent-primary);
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px rgba(71, 215, 170, 0.3));
+}
+
+/* ── Status text ──────────────────────────────────────────────── */
+.processing-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  text-align: center;
+}
+
+.processing-status-carousel {
+  position: relative;
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.processing-status-slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  opacity: 0;
+  animation: slideFade 17.5s linear infinite;
+}
+
+/* 5 slides, 3.5s each = 17.5s cycle. Each slide is 20% of the cycle. */
+@keyframes slideFade {
+  0%   { opacity: 0; }
+  2%   { opacity: 1; }
+  18%  { opacity: 1; }
+  20%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.processing-status-slide strong {
+  font-size: 1rem;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
-.analysis-copy p {
-  margin: 0;
+.processing-status-slide span {
   font-size: 0.82rem;
   color: var(--text-secondary);
+}
+
+/* ── Progress bar (linear = never pauses) ─────────────────────── */
+.processing-bar-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(71, 215, 170, 0.12);
+  overflow: hidden;
+}
+
+.processing-bar-fill {
+  width: 35%;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent-primary);
+  animation: barSlide 1.4s linear infinite;
+}
+
+@keyframes barSlide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(385%); }
+}
+
+.processing-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
 }
 
 .upload-actions {
@@ -322,18 +435,6 @@
 .upload-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-@keyframes analysisPulse {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.3;
-  }
-  50% {
-    transform: translateY(-3px);
-    opacity: 1;
-  }
 }
 
 @media (max-width: 920px) {

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, ChevronRight, FileDown, CheckSquare, Square, FileText } from 'lucide-react';
+import { View, ChevronRight, FileDown, CheckSquare, Square, FileText, Trash2 } from 'lucide-react';
 import './History.css';
 import { exportCaseReportPdf } from '../utils/reportPdf';
 
@@ -13,8 +13,9 @@ function asSourceUrl(pathOrUrl) {
   return `${API_BASE}${pathOrUrl}`;
 }
 
-const History = ({ history, onView }) => {
+const History = ({ history, onView, onDelete }) => {
   const [selectedIds, setSelectedIds] = useState([]);
+  const [deletingId, setDeletingId] = useState(null);
 
   const selectedItems = useMemo(
     () => history.filter((item) => selectedIds.includes(item.id)),
@@ -42,6 +43,44 @@ const History = ({ history, onView }) => {
     }
   };
 
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this record? This action cannot be undone.')) return;
+    setDeletingId(id);
+    try {
+      const resp = await fetch(`${API_BASE}/analyses/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      setSelectedIds((prev) => prev.filter((sid) => sid !== id));
+      if (onDelete) onDelete(id);
+    } catch (e) {
+      alert(`Failed to delete: ${e.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedItems.length === 0) return;
+    if (!window.confirm(`Delete ${selectedItems.length} selected record(s)? This cannot be undone.`)) return;
+    for (const item of selectedItems) {
+      setDeletingId(item.id);
+      try {
+        const resp = await fetch(`${API_BASE}/analyses/${item.id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        if (resp.ok && onDelete) onDelete(item.id);
+      } catch (_) { /* skip failures silently */ }
+    }
+    setSelectedIds([]);
+    setDeletingId(null);
+  };
+
   return (
     <div className="history-container">
       {history.length > 0 && (
@@ -56,6 +95,10 @@ const History = ({ history, onView }) => {
             <button className="btn-report" onClick={handleBulkReport} disabled={selectedItems.length === 0}>
               <FileText size={16} />
               Import as Report
+            </button>
+            <button className="btn-delete-selected" onClick={handleBulkDelete} disabled={selectedItems.length === 0}>
+              <Trash2 size={16} />
+              Delete Selected
             </button>
           </div>
         </div>
@@ -140,6 +183,14 @@ const History = ({ history, onView }) => {
                   title={item.report_url ? 'Download saved report' : 'Generate & download report'}
                 >
                   <FileDown size={18} />
+                </button>
+                <button
+                  className="btn-delete"
+                  onClick={() => handleDelete(item.id)}
+                  disabled={deletingId === item.id}
+                  title="Delete record"
+                >
+                  <Trash2 size={18} />
                 </button>
                 <button 
                   className="btn-view"

@@ -290,6 +290,7 @@ function App() {
             <History
               history={history}
               onView={handleViewResult}
+              onDelete={(id) => setHistory((prev) => prev.filter((item) => item.id !== id))}
             />
           )}
 
