@@ -104,7 +104,9 @@ app.mount("/evidence", StaticFiles(directory=str(EVIDENCE_DIR)), name="evidence"
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if request.method != "OPTIONS" and request.url.path in PROTECTED_PATHS:
+    path = request.url.path
+    is_protected = path in PROTECTED_PATHS or path.startswith("/analyses/")
+    if request.method != "OPTIONS" and is_protected:
         token = request.cookies.get(SESSION_COOKIE)
         if not token or token not in ACTIVE_SESSIONS:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
@@ -695,3 +697,49 @@ async def upload_report(
         raise HTTPException(status_code=500, detail=f"Failed to update analysis record: {exc}")
 
     return {"report_url": report_url, "analysis_id": analysis_id}
+
+
+@app.delete("/analyses/{analysis_id}")
+async def delete_analysis(analysis_id: str) -> dict[str, Any]:
+    """Delete a single analysis and its associated detections from Supabase."""
+    supabase = get_client()
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    try:
+        # 1. Delete associated detections first (foreign-key safe)
+        supabase.table("detections").delete().eq("analysis_id", analysis_id).execute()
+        logger.info("delete_analysis: deleted detections for %s", analysis_id)
+
+        # 2. Delete the analysis record
+        result = supabase.table("analyses").delete().eq("id", analysis_id).execute()
+        deleted = result.data if result and result.data else []
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Analysis {analysis_id} not found")
+
+        # 3. Best-effort cleanup of storage files (non-fatal)
+        try:
+            bucket = supabase.storage.from_("media")
+            files_to_remove = [
+                f"{analysis_id}_original",
+                f"{analysis_id}_annotated.jpg",
+                f"reports/{analysis_id}_report.pdf",
+            ]
+            # List files that might match and remove them
+            for prefix in files_to_remove:
+                try:
+                    bucket.remove([prefix])
+                except Exception:
+                    pass  # storage cleanup is best-effort
+        except Exception as storage_exc:
+            logger.warning("delete_analysis: storage cleanup failed (non-fatal): %s", storage_exc)
+
+        logger.info("delete_analysis: successfully deleted analysis %s", analysis_id)
+        return {"deleted": True, "analysis_id": analysis_id}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("delete_analysis: failed for %s: %s", analysis_id, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to delete analysis: {exc}")

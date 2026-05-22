@@ -5,6 +5,31 @@ import './UploadMedia.css';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
+const PROCESSING_MESSAGES = [
+    { title: 'Processing Traffic Analysis', sub: 'Scanning uploaded media for violations' },
+    { title: 'Analyzing Violation Data', sub: 'Identifying smoke emission and littering incidents' },
+    { title: 'Detecting Vehicle Information', sub: 'Extracting number plates and vehicle details' },
+    { title: 'Generating Detection Results', sub: 'Matching violations to vehicle records' },
+    { title: 'Preparing Incident Report', sub: 'Compiling evidence and confidence metrics' },
+];
+
+function ProcessingStatus() {
+    return (
+        <div className="processing-status-carousel" aria-live="polite">
+            {PROCESSING_MESSAGES.map((msg, i) => (
+                <div
+                    key={i}
+                    className="processing-status-slide"
+                    style={{ animationDelay: `${i * 3.5}s` }}
+                >
+                    <strong>{msg.title}</strong>
+                    <span>{msg.sub}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 const UploadMedia = ({ onUploadSuccess }) => {
     const [file, setFile] = useState(null);
     const [preview, setPreview] = useState(null);
@@ -96,7 +121,7 @@ const UploadMedia = ({ onUploadSuccess }) => {
             }
 
             if (!err.response) {
-                setError(`Cannot reach backend at ${API_BASE}. Start the FastAPI server and try again.`);
+                setError('Unable to connect to the analysis server. Please ensure the service is running and try again.');
                 return;
             }
 
@@ -120,11 +145,11 @@ const UploadMedia = ({ onUploadSuccess }) => {
                 <p className="eyebrow">Evidence Intake</p>
                 <h2>Upload an image or video for forensic analysis</h2>
                 <p>
-                    The backend runs violation detection first, then vehicle matching, then number plate OCR.
-                    This keeps the result accurate and easy to present in a professional demo.
+                    The system performs comprehensive violation detection, vehicle matching, and number plate recognition
+                    to deliver accurate, presentation-ready results.
                 </p>
                 <div className="upload-highlights">
-                    <span><Wand2 size={16} /> Smart detection pipeline</span>
+                    <span><Wand2 size={16} /> Intelligent detection engine</span>
                     <span><Gauge size={16} /> Confidence-driven reporting</span>
                     <span><ShieldCheck size={16} /> Privacy-safe masked plates</span>
                 </div>
@@ -195,7 +220,7 @@ const UploadMedia = ({ onUploadSuccess }) => {
                     <h4>Output Format</h4>
                     <ul>
                         <li>Annotated evidence image/video</li>
-                        <li>Violation confidence and match strategy</li>
+                        <li>Violation type and confidence scoring</li>
                         <li>Vehicle and plate bounding boxes</li>
                         <li>Masked plate output and OCR confidence</li>
                     </ul>
@@ -210,15 +235,25 @@ const UploadMedia = ({ onUploadSuccess }) => {
             )}
 
             {uploading && (
-                <div className="analysis-progress" role="status" aria-live="polite">
-                    <div className="analysis-loader" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                    </div>
-                    <div className="analysis-copy">
-                        <strong>Analyzing evidence</strong>
-                        <p>Running detection, matching vehicles, and reading plates...</p>
+                <div className="processing-overlay" role="status" aria-live="polite">
+                    <div className="processing-backdrop" />
+                    <div className="processing-card">
+                        <div className="processing-scanner">
+                            <div className="scanner-ring" />
+                            <div className="scanner-ring ring-2" />
+                            <div className="scanner-pulse" />
+                            <svg className="scanner-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                <circle cx="12" cy="12" r="3" />
+                            </svg>
+                        </div>
+                        <div className="processing-info">
+                            <ProcessingStatus />
+                            <div className="processing-bar-track">
+                                <div className="processing-bar-fill" />
+                            </div>
+                            <p className="processing-hint">This may take a moment depending on file size</p>
+                        </div>
                     </div>
                 </div>
             )}

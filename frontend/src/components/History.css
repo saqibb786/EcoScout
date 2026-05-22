@@ -52,10 +52,14 @@
 }
 
 .btn-report:hover,
-.btn-ghost:hover,
-.btn-delete-selected:hover {
+.btn-ghost:hover {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
+}
+
+.btn-delete-selected:hover {
+  border-color: var(--status-danger);
+  color: var(--status-danger);
 }
 
 .btn-delete-selected:disabled,
