@@ -176,33 +176,64 @@ function ViolationCard({ violation, index }) {
    Priority: vision analysis → pipeline detections → nothing
    ──────────────────────────────────────────────────────────────────── */
 function resolveDisplayData(result) {
-    // 1. Try vision analysis (primary)
-    const visionData = result.groq_analysis
-        || result.detection_summary?.groq_analysis
-        || null;
+    // Always prefer GROQ (vision/AI) analysis. Do NOT expose pipeline records in UI;
+    // the pipeline still runs for internal calculation but is hidden from users.
+    const violations = getAiViolations(result);
+    return {
+        source: 'vision',
+        violations,
+        smoke: findAiViolation(violations, 'smoke'),
+        litter: findAiViolation(violations, 'litter'),
+        records: [],
+    };
+}
 
-    if (
-        visionData
-        && Array.isArray(visionData.violations)
-        && visionData.violations.length > 0
-    ) {
-        // Filter low-confidence results (below 30%) as unreliable
-        const reliable = visionData.violations.filter(
-            (v) => (v.confidence || 0) >= 0.3,
-        );
-        if (reliable.length > 0) {
-            return { source: 'vision', violations: reliable, records: [] };
-        }
-    }
+function getAiViolations(result) {
+    const source = result?.groq_analysis || result?.detection_summary?.groq_analysis || null;
+    return Array.isArray(source?.violations) ? source.violations : [];
+}
 
-    // 2. Fallback to pipeline detection records
-    const records = result.records || [];
-    if (records.length > 0) {
-        return { source: 'pipeline', violations: [], records };
-    }
+function findAiViolation(violations, kind) {
+    return violations.find((violation) => String(violation?.violation_type || '').toLowerCase().includes(kind));
+}
 
-    // 3. No results from either source
-    return { source: 'none', violations: [], records: [] };
+function DetectionResultCard({ title, violation, index }) {
+    const confidence = violation?.confidence ?? 0;
+    const vehicleConfidence = violation?.vehicle_confidence ?? confidence;
+    const plateConfidence = violation?.plate_confidence ?? confidence;
+    const ocrConfidence = violation?.ocr_confidence ?? confidence;
+    const plate = violation?.number_plate || 'Not detected';
+    const detected = Boolean(violation);
+
+    return (
+        <article className="analysis-record-card">
+            <div className="analysis-record-header">
+                <div>
+                    <span className="record-kicker">Record #{index + 1}</span>
+                    <h5>{title}</h5>
+                </div>
+                <span className="record-confidence">{fmtPercent(confidence)} confidence</span>
+            </div>
+
+            <div className="analysis-record-layout">
+                <div className="analysis-record-body">
+                    <div className="plate-identity-block">
+                        <span className="info-label">Number Plate</span>
+                        <div className="plate-display">
+                            <span className="plate-text-display plate-text-center">{plate}</span>
+                        </div>
+                    </div>
+
+                    <dl className="analysis-detail-list">
+                        <div className="detail-row"><dt>Detected</dt><dd>{detected ? 'Yes' : 'No'}</dd></div>
+                        <div className="detail-row"><dt>Vehicle Confidence</dt><dd>{fmtPercent(vehicleConfidence)}</dd></div>
+                        <div className="detail-row"><dt>Plate Confidence</dt><dd>{fmtPercent(plateConfidence)}</dd></div>
+                        <div className="detail-row"><dt>OCR Confidence</dt><dd>{fmtPercent(ocrConfidence)}</dd></div>
+                    </dl>
+                </div>
+            </div>
+        </article>
+    );
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -226,7 +257,6 @@ const Results = ({ result }) => {
     const hasAnnotatedMedia = Boolean(annotatedUrl);
 
     const displayData = resolveDisplayData(result);
-    const hasResults = displayData.violations.length > 0 || displayData.records.length > 0;
 
     return (
         <div className="results-container">
@@ -262,36 +292,10 @@ const Results = ({ result }) => {
                 <div className="data-section">
                     <h4>Detected Violations</h4>
 
-                    {/* Primary: vision analysis violations */}
-                    {displayData.violations.length > 0 && (
-                        <div className="detections-list-expanded">
-                            {displayData.violations.map((v, i) => (
-                                <ViolationCard key={i} violation={v} index={i} />
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Fallback: pipeline detection records with annotated crops */}
-                    {displayData.records.length > 0 && (
-                        <div className="detections-list-expanded">
-                            {displayData.records.map((det, i) => (
-                                <DetectionCard
-                                    key={i}
-                                    detection={det}
-                                    index={i}
-                                    sourceImageUrl={asSourceUrl(det.frame_image_url || result.annotated_image_url || result.annotated_image)}
-                                />
-                            ))}
-                        </div>
-                    )}
-
-                    {/* No violations from any source */}
-                    {!hasResults && (
-                        <div className="no-detections">
-                            <CheckCircle size={24} color="#22c55e" />
-                            <p>No violations or objects detected.</p>
-                        </div>
-                    )}
+                    <div className="detections-list-expanded">
+                        <DetectionResultCard title="Vehicle Littering Result" violation={displayData.litter} index={0} />
+                        <DetectionResultCard title="Smoke Detection Result" violation={displayData.smoke} index={1} />
+                    </div>
                 </div>
             </div>
         </div>

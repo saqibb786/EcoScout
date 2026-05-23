@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from app.core.pipeline import ViolationPipeline
 from services.supabase_client import get_client, ensure_media_bucket
 from services.storage import upload_media
-from services.groq_vision import analyze_with_groq
+from services.groq_vision import analyze_with_groq, has_groq_api_key
 
 logging.basicConfig(
     level=logging.INFO,
@@ -174,6 +174,23 @@ def _upload_image_result(image: np.ndarray, dest_name: str) -> str | None:
 def _upload_video_result(video_path: Path, dest_name: str) -> str | None:
     """Upload a video file to Supabase Storage."""
     return upload_media(video_path, dest_name=dest_name, content_type="video/mp4")
+
+
+def _encode_image_bytes(image: np.ndarray) -> bytes | None:
+    """Encode an OpenCV image as JPEG bytes for downstream analysis."""
+    if image is None or not isinstance(image, np.ndarray) or image.size == 0:
+        return None
+
+    safe_img = image
+    if safe_img.dtype != np.uint8:
+        safe_img = np.clip(safe_img, 0, 255).astype(np.uint8)
+    if len(safe_img.shape) == 2:
+        safe_img = cv2.cvtColor(safe_img, cv2.COLOR_GRAY2BGR)
+
+    encoded, buffer = cv2.imencode(".jpg", safe_img)
+    if not encoded:
+        return None
+    return buffer.tobytes()
 
 
 def _guess_upload_content_type(filename: str) -> str:
@@ -344,12 +361,20 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
 
     # --- GROQ Vision enrichment (additive — does not affect existing pipeline) ---
     try:
-        groq_analysis = await analyze_with_groq(data, content_type=original_ct)
+        groq_input = _encode_image_bytes(annotated) or data
+        groq_analysis = await analyze_with_groq(groq_input, content_type="image/jpeg")
+        if not groq_analysis or not groq_analysis.get("violations"):
+            fallback_analysis = await analyze_with_groq(data, content_type=original_ct)
+            if fallback_analysis and fallback_analysis.get("violations"):
+                groq_analysis = fallback_analysis
+        detection_summary["groq_status"] = "available_with_results" if groq_analysis and groq_analysis.get("violations") else "available_no_violations"
         if groq_analysis:
             detection_summary["groq_analysis"] = groq_analysis
             logger.info("analyze_image: GROQ enrichment returned %d violations", len(groq_analysis.get("violations", [])))
     except Exception as groq_exc:
         logger.warning("analyze_image: GROQ enrichment failed (non-fatal): %s", groq_exc)
+    if not has_groq_api_key():
+        detection_summary["groq_status"] = "missing_api_key"
     # --- End GROQ enrichment ---
 
     supabase = get_client()
@@ -469,6 +494,7 @@ async def analyze_video(
     timestamp_real = _current_timestamp()
     media_url = None
     detection_image_url = None
+    groq_candidate_frame: np.ndarray | None = None
 
     try:
         while True:
@@ -486,6 +512,8 @@ async def analyze_video(
                 for rec in records:
                     rec["video_time_sec"] = round(frame_index / fps, 3)
                 all_records.extend(records)
+                if groq_candidate_frame is None and records:
+                    groq_candidate_frame = annotated.copy()
                 # Save annotated frame and per-record crops for reporting.
                 writer.write(annotated)
                 try:
@@ -551,19 +579,30 @@ async def analyze_video(
 
     # --- GROQ Vision enrichment for video (analyze first frame) ---
     try:
-        _groq_frame_bytes = None
-        _gcap = cv2.VideoCapture(str(upload_path))
-        _gok, _gframe = _gcap.read()
-        _gcap.release()
-        if _gok and _gframe is not None:
-            _, _gbuf = cv2.imencode(".jpg", _gframe)
-            _groq_frame_bytes = _gbuf.tobytes()
+        _groq_frame_bytes = _encode_image_bytes(groq_candidate_frame)
+        if _groq_frame_bytes is None:
+            _gcap = cv2.VideoCapture(str(upload_path))
+            _gok, _gframe = _gcap.read()
+            _gcap.release()
+            if _gok and _gframe is not None:
+                _groq_frame_bytes = _encode_image_bytes(_gframe)
         groq_analysis = await analyze_with_groq(_groq_frame_bytes) if _groq_frame_bytes else None
+        if not groq_analysis or not groq_analysis.get("violations"):
+            _gcap = cv2.VideoCapture(str(upload_path))
+            _gok, _gframe = _gcap.read()
+            _gcap.release()
+            if _gok and _gframe is not None:
+                fallback_analysis = await analyze_with_groq(_encode_image_bytes(_gframe))
+                if fallback_analysis and fallback_analysis.get("violations"):
+                    groq_analysis = fallback_analysis
+        detection_summary["groq_status"] = "available_with_results" if groq_analysis and groq_analysis.get("violations") else "available_no_violations"
         if groq_analysis:
             detection_summary["groq_analysis"] = groq_analysis
             logger.info("analyze_video: GROQ enrichment returned %d violations", len(groq_analysis.get("violations", [])))
     except Exception as groq_exc:
         logger.warning("analyze_video: GROQ enrichment failed (non-fatal): %s", groq_exc)
+    if not has_groq_api_key():
+        detection_summary["groq_status"] = "missing_api_key"
     # --- End GROQ enrichment ---
 
     supabase = get_client()
