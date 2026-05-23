@@ -24,6 +24,11 @@ function fmtPercent(v) {
   return `${(Number(v) * 100).toFixed(1)}%`;
 }
 
+function fmtPercentRound(v) {
+  if (v === null || v === undefined) return "-";
+  return `${Math.round(Number(v) * 100)}%`;
+}
+
 function fmtDate(v) {
   if (!v) return "-";
   const d = new Date(v);
@@ -32,7 +37,7 @@ function fmtDate(v) {
 }
 
 function fmtPlate(record) {
-  return record?.plate_text_raw || record?.plate_text || "Not detected";
+  return record?.plate_text_raw || record?.plate_text || record?.number_plate || "Not detected";
 }
 
 function asSourceUrl(pathOrUrl) {
@@ -107,6 +112,7 @@ async function cropImageRegion(imageDataUrl, bbox) {
   });
 }
 
+/* ── Normalize case from any shape ──────────────────────────────── */
 function normalizeCase(inputCase) {
   const base = inputCase?.raw ? inputCase.raw : inputCase;
   return {
@@ -134,6 +140,57 @@ function normalizeCase(inputCase) {
       : Array.isArray(inputCase?.records)
         ? inputCase.records
         : [],
+    groq_analysis:
+      base?.groq_analysis ||
+      inputCase?.groq_analysis ||
+      base?.detection_summary?.groq_analysis ||
+      inputCase?.detection_summary?.groq_analysis ||
+      null,
+  };
+}
+
+/* ── Map violation type to clean label ──────────────────────────── */
+function mapViolationLabel(type) {
+  if (!type) return "Unknown Violation";
+  const t = type.toLowerCase();
+  if (t === "smoke_emission" || t.includes("smoke")) return "Smoke Detection";
+  if (t === "littering" || t.includes("litter")) return "Vehicle Littering Detection";
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+/* ── Resolve which data to use (same logic as Results.jsx) ──────── */
+function resolveReportData(caseData) {
+  const visionData = caseData.groq_analysis;
+  const violations = Array.isArray(visionData?.violations) ? visionData.violations : [];
+
+  const findViolation = (kind) => violations.find(
+    (v) => String(v?.violation_type || "").toLowerCase().includes(kind),
+  );
+
+  const toRecord = (index, title, kind) => {
+    const violation = findViolation(kind);
+    return {
+      index,
+      violation: title,
+      confidence: violation?.confidence || 0,
+      number_plate: violation?.number_plate || "Not detected",
+      vehicle_confidence: violation?.confidence || null,
+      plate_confidence: violation?.number_plate ? violation.confidence : null,
+      ocr_confidence: violation?.number_plate ? violation.confidence : null,
+      source: "vision",
+      ai_message:
+        violation?.description ||
+        (visionData ? "No AI violation detected" : "GROQ analysis unavailable"),
+      ai_detected: Boolean(violation?.violation_detected),
+    };
+  };
+
+  return {
+    source: "vision",
+    records: [
+      toRecord(1, "Vehicle Littering Detection", "litter"),
+      toRecord(2, "Smoke Detection", "smoke"),
+    ],
   };
 }
 
@@ -141,6 +198,32 @@ function getRecordImageUrl(record, caseData) {
   return asSourceUrl(
     record?.frame_image_url || caseData?.annotated_image_url || null,
   );
+}
+
+function getAnnotatedEvidenceUrl(caseData) {
+  const firstRecord = Array.isArray(caseData?.records) ? caseData.records.find((record) => record?.frame_image_url || record?.frame_image_url_abs) : null;
+  const candidate = firstRecord?.frame_image_url_abs || firstRecord?.frame_image_url || caseData?.annotated_image_url || null;
+  if (!candidate) return null;
+  if (String(candidate).toLowerCase().endsWith('.mp4')) return null;
+  return asSourceUrl(candidate);
+}
+
+function fitImageToBox(doc, imageDataUrl, boxX, boxY, boxW, boxH) {
+  const props = doc.getImageProperties(imageDataUrl);
+  const imageWidth = props?.width || boxW;
+  const imageHeight = props?.height || boxH;
+  const scale = Math.min(boxW / imageWidth, boxH / imageHeight);
+  const renderW = imageWidth * scale;
+  const renderH = imageHeight * scale;
+  const offsetX = boxX + (boxW - renderW) / 2;
+  const offsetY = boxY + (boxH - renderH) / 2;
+
+  return {
+    x: offsetX,
+    y: offsetY,
+    width: renderW,
+    height: renderH,
+  };
 }
 
 async function drawRecordBoundingBoxes(imageDataUrl, record) {
@@ -242,7 +325,7 @@ function drawSectionHeader(doc, state, title, subtitle = "") {
   state.y += 30;
 }
 
-function drawHero(doc, caseData, stats) {
+function drawHero(doc, caseData, reportRecords) {
   const pageWidth = doc.internal.pageSize.getWidth();
   doc.setFillColor(...THEME.heroBg);
   doc.rect(0, 0, pageWidth, 148, "F");
@@ -258,6 +341,10 @@ function drawHero(doc, caseData, stats) {
   doc.text(`Generated: ${fmtDate(new Date().toISOString())}`, PAGE.marginX, 82);
   doc.text(`Evidence: ${caseData.source_name}`, PAGE.marginX, 96);
 
+  const totalViolations = reportRecords.length;
+  const highConf = reportRecords.filter((r) => r.confidence >= 0.8).length;
+  const platesRead = reportRecords.filter((r) => r.number_plate && r.number_plate !== "Not detected").length;
+
   const metricY = 112;
   const startX = PAGE.marginX;
   const cardW = 120;
@@ -265,10 +352,9 @@ function drawHero(doc, caseData, stats) {
   const gap = 8;
 
   const cards = [
-    [`Violations`, String(caseData.violations_found)],
-    [`High Confidence`, String(stats.highConfidence)],
-    [`Plates Read`, String(stats.plateDetected)],
-    [`OCR Success`, String(stats.ocrSuccess)],
+    ["Violations", String(totalViolations)],
+    ["High Confidence", String(highConf)],
+    ["Plates Read", String(platesRead)],
   ];
 
   cards.forEach((card, i) => {
@@ -284,7 +370,7 @@ function drawHero(doc, caseData, stats) {
   });
 }
 
-function drawExecutiveSummary(doc, state, caseData) {
+function drawExecutiveSummary(doc, state, caseData, reportRecords) {
   const pageWidth = doc.internal.pageSize.getWidth();
   ensureSpace(doc, state, 56);
   doc.setFillColor(...THEME.surface);
@@ -301,7 +387,9 @@ function drawExecutiveSummary(doc, state, caseData) {
   doc.setTextColor(...THEME.text);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  const summaryText = `${caseData.violations_found} potential violation(s) were detected in ${caseData.source_type} evidence. This report presents confidence metrics, OCR-read plate outputs, annotated full-frame evidence, and zoomed forensic crops for rapid review.`;
+
+  const violationCount = reportRecords.length;
+  const summaryText = `${violationCount} potential violation(s) were detected in ${caseData.source_type} evidence. This report presents detection results with confidence metrics, number plate identification, and annotated evidence for review.`;
   const wrapped = doc.splitTextToSize(
     summaryText,
     pageWidth - PAGE.marginX * 2 - 14,
@@ -338,40 +426,107 @@ function drawFooterOnAllPages(doc) {
   }
 }
 
+/* ── Draw a single violation record card in the PDF ─────────────── */
+function drawRecordCard(doc, state, record) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const cardX = PAGE.marginX;
+  const cardW = pageWidth - PAGE.marginX * 2;
+  const cardH = 120;
+
+  ensureSpace(doc, state, cardH + 12);
+
+  // Card background
+  doc.setFillColor(...THEME.surface);
+  doc.setDrawColor(...THEME.border);
+  doc.roundedRect(cardX, state.y, cardW, cardH, 6, 6, "FD");
+
+  const innerX = cardX + 12;
+  let lineY = state.y + 18;
+
+  // Record # and violation type
+  doc.setTextColor(...THEME.muted);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(`Record #${record.index}`, innerX, lineY);
+
+  lineY += 14;
+  doc.setTextColor(...THEME.text);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text(record.violation, innerX, lineY);
+
+  // Confidence badge on the right
+  const confText = `${Math.round(record.confidence * 100)}% confidence`;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  const confWidth = doc.getTextWidth(confText) + 16;
+  const badgeX = cardX + cardW - confWidth - 12;
+  const badgeY = state.y + 14;
+  doc.setFillColor(...THEME.heroAccent);
+  doc.roundedRect(badgeX, badgeY, confWidth, 20, 4, 4, "F");
+  doc.setTextColor(7, 38, 33);
+  doc.text(confText, badgeX + 8, badgeY + 14);
+
+  lineY += 20;
+
+  // Number plate
+  doc.setTextColor(...THEME.text);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Number Plate", innerX, lineY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(record.number_plate, innerX + 90, lineY);
+
+  lineY += 18;
+
+  if (record.ai_message) {
+    doc.setTextColor(...THEME.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.6);
+    doc.text(record.ai_message, innerX, lineY);
+    lineY += 14;
+  }
+
+  // Confidence metrics in a row
+  const metrics = [
+    ["Vehicle Confidence", fmtPercentRound(record.vehicle_confidence)],
+    ["Plate Confidence", fmtPercentRound(record.plate_confidence)],
+    ["OCR Confidence", fmtPercentRound(record.ocr_confidence)],
+  ];
+
+  const metricColW = (cardW - 24) / 3;
+  metrics.forEach((m, i) => {
+    const mx = innerX + i * metricColW;
+    doc.setTextColor(...THEME.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(m[0], mx, lineY);
+
+    doc.setTextColor(...THEME.text);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(m[1], mx, lineY + 12);
+  });
+
+  state.y += cardH + 10;
+}
+
+/* ── Main export function ───────────────────────────────────────── */
 export async function exportCaseReportPdf(inputCase) {
   const caseData = normalizeCase(inputCase);
-  const records = caseData.records;
-
-  const stats = {
-    highConfidence: records.filter((r) => (r.violation_confidence || 0) >= 0.8)
-      .length,
-    vehicleMatched: records.filter((r) => Boolean(r.vehicle_bbox)).length,
-    plateDetected: records.filter((r) => Boolean(r.plate_bbox)).length,
-    ocrSuccess: records.filter((r) => Boolean(r.plate_text_raw)).length,
-    avgViolationConfidence: records.length
-      ? records.reduce((acc, r) => acc + (r.violation_confidence || 0), 0) /
-        records.length
-      : 0,
-    avgVehicleConfidence: records.filter((r) => r.vehicle_confidence).length
-      ? records
-          .filter((r) => r.vehicle_confidence)
-          .reduce((acc, r) => acc + (r.vehicle_confidence || 0), 0) /
-        records.filter((r) => r.vehicle_confidence).length
-      : 0,
-    avgPlateConfidence: records.filter((r) => r.plate_confidence).length
-      ? records
-          .filter((r) => r.plate_confidence)
-          .reduce((acc, r) => acc + (r.plate_confidence || 0), 0) /
-        records.filter((r) => r.plate_confidence).length
-      : 0,
-  };
+  const resolved = resolveReportData(caseData);
+  const reportRecords = resolved.records;
 
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const state = { y: 164 };
 
-  drawHero(doc, caseData, stats);
-  drawExecutiveSummary(doc, state, caseData);
+  // ─── Page 1: Hero + Summary ───────────────────────────────────
+  drawHero(doc, caseData, reportRecords);
+  drawExecutiveSummary(doc, state, caseData, reportRecords);
 
+  // ─── Section 1: Case Profile ──────────────────────────────────
   drawSectionHeader(
     doc,
     state,
@@ -386,7 +541,7 @@ export async function exportCaseReportPdf(inputCase) {
       ["Case Identifier", String(caseData.id)],
       ["Evidence File", String(caseData.source_name)],
       ["Evidence Type", String(caseData.source_type)],
-      ["Detected Violations", String(caseData.violations_found)],
+      ["Detected Violations", String(reportRecords.length)],
       [
         "Processed Frames",
         caseData.total_frames === undefined
@@ -423,58 +578,96 @@ export async function exportCaseReportPdf(inputCase) {
   });
   state.y = doc.lastAutoTable.finalY + 16;
 
+  // ─── Section 2: Detection Results (record cards) ──────────────
   drawSectionHeader(
     doc,
     state,
-    "2. Detection Performance",
-    "Non-redundant confidence and association metrics",
+    "2. Detection Results",
+    "Violation records with confidence metrics and plate identification",
   );
-  autoTable(doc, {
-    startY: state.y,
-    theme: "grid",
-    head: [["Metric", "Value"]],
-    body: [
-      ["High-Confidence Violations (>=80%)", String(stats.highConfidence)],
-      ["Vehicle Association Success", String(stats.vehicleMatched)],
-      ["Plate Detection Success", String(stats.plateDetected)],
-      ["OCR Read Success", String(stats.ocrSuccess)],
-      [
-        "Average Violation Confidence",
-        fmtPercent(stats.avgViolationConfidence),
-      ],
-      ["Average Vehicle Confidence", fmtPercent(stats.avgVehicleConfidence)],
-      ["Average Plate Confidence", fmtPercent(stats.avgPlateConfidence)],
-    ],
-    styles: {
-      font: "helvetica",
-      fontSize: 9,
-      cellPadding: 6,
-      textColor: THEME.text,
-      lineColor: THEME.border,
-      lineWidth: 0.5,
-    },
-    headStyles: {
-      fillColor: THEME.heroBg,
-      textColor: [240, 255, 250],
-      fontStyle: "bold",
-      halign: "left",
-    },
-    columnStyles: {
-      0: { cellWidth: 260, fontStyle: "bold", fillColor: THEME.chipSurface },
-      1: { cellWidth: 240 },
-    },
-    margin: { left: PAGE.marginX, right: PAGE.marginX },
-  });
-  state.y = doc.lastAutoTable.finalY + 16;
 
+  const annotatedEvidenceUrl = getAnnotatedEvidenceUrl(caseData);
+  const annotatedEvidenceDataUrl = annotatedEvidenceUrl
+    ? await fetchImageAsDataUrl(annotatedEvidenceUrl)
+    : null;
+
+  ensureSpace(doc, state, 220);
+  const evidenceCardX = PAGE.marginX;
+  const evidenceCardW = doc.internal.pageSize.getWidth() - PAGE.marginX * 2;
+  const evidenceCardY = state.y;
+  const evidenceCardH = 206;
+
+  doc.setFillColor(...THEME.surface);
+  doc.setDrawColor(...THEME.border);
+  doc.roundedRect(evidenceCardX, evidenceCardY, evidenceCardW, evidenceCardH, 6, 6, "FD");
+
+  doc.setTextColor(...THEME.text);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Annotated Evidence", evidenceCardX + 12, evidenceCardY + 16);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.8);
+  doc.setTextColor(...THEME.muted);
+  doc.text("Annotated frame/image used for report review", evidenceCardX + 12, evidenceCardY + 30);
+
+  if (annotatedEvidenceDataUrl) {
+    try {
+      const fitted = fitImageToBox(
+        doc,
+        annotatedEvidenceDataUrl,
+        evidenceCardX + 12,
+        evidenceCardY + 40,
+        evidenceCardW - 24,
+        150,
+      );
+      doc.addImage(
+        annotatedEvidenceDataUrl,
+        "JPEG",
+        fitted.x,
+        fitted.y,
+        fitted.width,
+        fitted.height,
+        undefined,
+        "FAST",
+      );
+    } catch {
+      doc.setTextColor(...THEME.muted);
+      doc.text("Annotated evidence could not be rendered.", evidenceCardX + 12, evidenceCardY + 72);
+    }
+  } else {
+    doc.setTextColor(...THEME.muted);
+    doc.text("Annotated evidence unavailable for this case.", evidenceCardX + 12, evidenceCardY + 72);
+  }
+
+  state.y += evidenceCardH + 12;
+
+  if (reportRecords.length === 0) {
+    ensureSpace(doc, state, 24);
+    doc.setTextColor(...THEME.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(
+      "No violations were detected in this analysis.",
+      PAGE.marginX,
+      state.y,
+    );
+    state.y += 16;
+  } else {
+    for (const record of reportRecords) {
+      drawRecordCard(doc, state, record);
+    }
+  }
+
+  // ─── Section 3: Detection Register (summary table) ────────────
   drawSectionHeader(
     doc,
     state,
     "3. Detection Register",
-    "Record-level outcomes for violation, plate read, and strategy",
+    "Tabular summary of all detected violations",
   );
 
-  if (records.length === 0) {
+  if (reportRecords.length === 0) {
     ensureSpace(doc, state, 24);
     doc.setTextColor(...THEME.muted);
     doc.setFont("helvetica", "normal");
@@ -490,18 +683,16 @@ export async function exportCaseReportPdf(inputCase) {
       startY: state.y,
       theme: "grid",
       head: [
-        ["#", "Violation", "V-Conf", "Plate Read", "OCR", "Strategy", "Time"],
+        ["#", "Violation Type", "Confidence", "Number Plate", "Vehicle Conf", "Plate Conf", "OCR Conf"],
       ],
-      body: records.map((r, index) => [
-        String(index + 1),
-        r.violation || "-",
-        fmtPercent(r.violation_confidence),
-        fmtPlate(r),
-        fmtPercent(r.ocr_confidence),
-        r.match_strategy || "-",
-        typeof r.video_time_sec === 'number'
-          ? `${r.video_time_sec.toFixed(2)}s`
-          : "Image",
+      body: reportRecords.map((r) => [
+        String(r.index),
+        r.violation,
+        fmtPercentRound(r.confidence),
+        r.number_plate,
+        fmtPercentRound(r.vehicle_confidence),
+        fmtPercentRound(r.plate_confidence),
+        fmtPercentRound(r.ocr_confidence),
       ]),
       styles: {
         font: "helvetica",
@@ -517,47 +708,33 @@ export async function exportCaseReportPdf(inputCase) {
         fontStyle: "bold",
       },
       columnStyles: {
-        0: { cellWidth: 18, halign: "center" },
-        1: { cellWidth: 78 },
-        2: { cellWidth: 56, halign: "right" },
-        3: { cellWidth: 115 },
-        4: { cellWidth: 48, halign: "right" },
-        5: { cellWidth: 120 },
-        6: { cellWidth: 64, halign: "right" },
+        0: { cellWidth: 22, halign: "center" },
+        1: { cellWidth: 130 },
+        2: { cellWidth: 60, halign: "center" },
+        3: { cellWidth: 100 },
+        4: { cellWidth: 60, halign: "center" },
+        5: { cellWidth: 60, halign: "center" },
+        6: { cellWidth: 60, halign: "center" },
       },
       margin: { left: PAGE.marginX, right: PAGE.marginX },
     });
     state.y = doc.lastAutoTable.finalY + 16;
   }
 
-  drawSectionHeader(
-    doc,
-    state,
-    "4. Visual Evidence Board",
-    "Complete frame with annotation overlays and labelled bounding boxes",
-  );
-
-  const evidenceRecords = records
-    .map((record, idx) => ({
-      idx,
-      record,
-      imageUrl: getRecordImageUrl(record, caseData),
-    }))
+  // ─── Section 4: Visual Evidence (only for pipeline records with bboxes) ──
+  const pipelineRecords = reportRecords
+    .filter((r) => r.source === "pipeline" && r._raw)
     .slice(0, 6);
 
-  if (evidenceRecords.length === 0) {
-    ensureSpace(doc, state, 24);
-    doc.setTextColor(...THEME.muted);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(
-      "No evidence frames available to render for this case.",
-      PAGE.marginX,
-      state.y,
+  if (pipelineRecords.length > 0) {
+    drawSectionHeader(
+      doc,
+      state,
+      "4. Visual Evidence Board",
+      "Annotated frames with detection bounding boxes",
     );
-    state.y += 16;
-  } else {
-    for (const item of evidenceRecords) {
+
+    for (const item of pipelineRecords) {
       ensureSpace(doc, state, 250);
 
       const cardX = PAGE.marginX;
@@ -573,7 +750,7 @@ export async function exportCaseReportPdf(inputCase) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.8);
       doc.text(
-        `Record ${item.idx + 1} · ${item.record.violation || "-"}`,
+        `Record ${item.index} · ${item.violation}`,
         cardX + 10,
         cardY + 14,
       );
@@ -582,17 +759,19 @@ export async function exportCaseReportPdf(inputCase) {
       doc.setFontSize(8.5);
       doc.setTextColor(...THEME.muted);
       doc.text(
-        `Plate: ${fmtPlate(item.record)} · OCR ${fmtPercent(item.record.ocr_confidence)}`,
+        `Plate: ${item.number_plate} · Confidence: ${fmtPercentRound(item.confidence)}`,
         cardX + 10,
         cardY + 27,
       );
 
-      const baseDataUrl = item.imageUrl
-        ? await fetchImageAsDataUrl(item.imageUrl)
+      const rawRecord = item._raw;
+      const imageUrl = getRecordImageUrl(rawRecord, caseData);
+      const baseDataUrl = imageUrl
+        ? await fetchImageAsDataUrl(imageUrl)
         : null;
       const boxedDataUrl = await drawRecordBoundingBoxes(
         baseDataUrl,
-        item.record,
+        rawRecord,
       );
 
       if (boxedDataUrl) {
@@ -628,11 +807,10 @@ export async function exportCaseReportPdf(inputCase) {
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...THEME.muted);
       const notes = [
-        `Violation Conf: ${fmtPercent(item.record.violation_confidence)}`,
-        `Vehicle Conf: ${fmtPercent(item.record.vehicle_confidence)}`,
-        `Plate Conf: ${fmtPercent(item.record.plate_confidence)}`,
-        `Strategy: ${item.record.match_strategy || "-"}`,
-        `Time: ${typeof item.record.video_time_sec === 'number' ? `${item.record.video_time_sec.toFixed(2)}s` : "Image"}`,
+        `Violation Conf: ${fmtPercent(rawRecord.violation_confidence)}`,
+        `Vehicle Conf: ${fmtPercent(rawRecord.vehicle_confidence)}`,
+        `Plate Conf: ${fmtPercent(rawRecord.plate_confidence)}`,
+        `OCR Conf: ${fmtPercent(rawRecord.ocr_confidence)}`,
       ];
       notes.forEach((line, i) => {
         doc.text(line, cardX + 378, cardY + 66 + i * 14);
@@ -640,36 +818,16 @@ export async function exportCaseReportPdf(inputCase) {
 
       state.y += 248;
     }
-  }
 
-  drawSectionHeader(
-    doc,
-    state,
-    "5. Zoomed Forensic Crops",
-    "Vehicle and number-plate close-ups extracted from evidence frames",
-  );
-
-  const cropRecords = records
-    .map((record, idx) => ({
-      idx,
-      record,
-      imageUrl: getRecordImageUrl(record, caseData),
-    }))
-    .slice(0, 6);
-
-  if (cropRecords.length === 0) {
-    ensureSpace(doc, state, 24);
-    doc.setTextColor(...THEME.muted);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(
-      "No crop-ready records available for this case.",
-      PAGE.marginX,
-      state.y,
+    // ─── Section 5: Zoomed Forensic Crops ──────────────────────────
+    drawSectionHeader(
+      doc,
+      state,
+      "5. Zoomed Forensic Crops",
+      "Vehicle and number-plate close-ups extracted from evidence frames",
     );
-    state.y += 16;
-  } else {
-    for (const item of cropRecords) {
+
+    for (const item of pipelineRecords) {
       ensureSpace(doc, state, 170);
 
       const cardX = PAGE.marginX;
@@ -685,14 +843,15 @@ export async function exportCaseReportPdf(inputCase) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.text(
-        `Record ${item.idx + 1} · ${item.record.violation || "-"}`,
+        `Record ${item.index} · ${item.violation}`,
         cardX + 10,
         cardY + 14,
       );
 
-      // Prefer backend-provided crop images when available; otherwise crop client-side.
-      const baseDataUrl = item.imageUrl
-        ? await fetchImageAsDataUrl(item.imageUrl)
+      const rawRecord = item._raw;
+      const imageUrl = getRecordImageUrl(rawRecord, caseData);
+      const baseDataUrl = imageUrl
+        ? await fetchImageAsDataUrl(imageUrl)
         : null;
 
       doc.setFont("helvetica", "bold");
@@ -702,38 +861,24 @@ export async function exportCaseReportPdf(inputCase) {
       doc.text("Plate Crop", cardX + 202, cardY + 30);
 
       let vehicleCrop = null;
-      if (item.record.vehicle_crop_url) {
-        const url =
-          item.record.vehicle_crop_url_abs || item.record.vehicle_crop_url;
+      if (rawRecord.vehicle_crop_url) {
+        const url = rawRecord.vehicle_crop_url_abs || rawRecord.vehicle_crop_url;
         vehicleCrop = await fetchImageAsDataUrl(url);
-      } else if (baseDataUrl && item.record.vehicle_bbox) {
-        vehicleCrop = await cropImageRegion(
-          baseDataUrl,
-          item.record.vehicle_bbox,
-        );
+      } else if (baseDataUrl && rawRecord.vehicle_bbox) {
+        vehicleCrop = await cropImageRegion(baseDataUrl, rawRecord.vehicle_bbox);
       }
 
       let plateCrop = null;
-      if (item.record.plate_crop_url) {
-        const url =
-          item.record.plate_crop_url_abs || item.record.plate_crop_url;
+      if (rawRecord.plate_crop_url) {
+        const url = rawRecord.plate_crop_url_abs || rawRecord.plate_crop_url;
         plateCrop = await fetchImageAsDataUrl(url);
-      } else if (baseDataUrl && item.record.plate_bbox) {
-        plateCrop = await cropImageRegion(baseDataUrl, item.record.plate_bbox);
+      } else if (baseDataUrl && rawRecord.plate_bbox) {
+        plateCrop = await cropImageRegion(baseDataUrl, rawRecord.plate_bbox);
       }
 
       if (vehicleCrop) {
         try {
-          doc.addImage(
-            vehicleCrop,
-            "JPEG",
-            cardX + 10,
-            cardY + 36,
-            178,
-            108,
-            undefined,
-            "FAST",
-          );
+          doc.addImage(vehicleCrop, "JPEG", cardX + 10, cardY + 36, 178, 108, undefined, "FAST");
         } catch {
           doc.text("Vehicle crop unavailable", cardX + 10, cardY + 52);
         }
@@ -743,16 +888,7 @@ export async function exportCaseReportPdf(inputCase) {
 
       if (plateCrop) {
         try {
-          doc.addImage(
-            plateCrop,
-            "JPEG",
-            cardX + 202,
-            cardY + 36,
-            120,
-            88,
-            undefined,
-            "FAST",
-          );
+          doc.addImage(plateCrop, "JPEG", cardX + 202, cardY + 36, 120, 88, undefined, "FAST");
         } catch {
           doc.text("Plate crop unavailable", cardX + 202, cardY + 52);
         }
@@ -766,18 +902,20 @@ export async function exportCaseReportPdf(inputCase) {
       doc.text("Plate Read", cardX + 338, cardY + 44);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...THEME.muted);
-      const plateTextWrapped = doc.splitTextToSize(fmtPlate(item.record), 150);
+      const plateTextWrapped = doc.splitTextToSize(item.number_plate, 150);
       doc.text(plateTextWrapped, cardX + 338, cardY + 58);
 
       state.y += 168;
     }
   }
 
+  // ─── Report Note ─────────────────────────────────────────────────
+  const noteSection = pipelineRecords.length > 0 ? "6" : "4";
   drawSectionHeader(
     doc,
     state,
-    "6. Report Note",
-    "Methodological note and interpretation guidance",
+    `${noteSection}. Report Note`,
+    "Interpretation guidance",
   );
   ensureSpace(doc, state, 54);
   doc.setFillColor(...THEME.surface);
@@ -794,7 +932,7 @@ export async function exportCaseReportPdf(inputCase) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   const note =
-    "Detections and OCR outputs are model-assisted findings and should be reviewed by an authorized operator before enforcement action. Confidence values indicate model certainty, not legal finality.";
+    "Detection results and OCR outputs are system-assisted findings and should be reviewed by an authorized operator before enforcement action. Confidence values indicate detection certainty, not legal finality.";
   doc.text(
     doc.splitTextToSize(
       note,

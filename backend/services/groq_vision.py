@@ -86,6 +86,11 @@ def _get_api_key() -> str | None:
     return key if key else None
 
 
+def has_groq_api_key() -> bool:
+    """Return True when a GROQ API key is configured."""
+    return _get_api_key() is not None
+
+
 def _call_groq_sync(image_bytes: bytes, content_type: str = "image/jpeg") -> dict | None:
     """Synchronous GROQ Vision API call. Meant to be run in a thread pool."""
     api_key = _get_api_key()

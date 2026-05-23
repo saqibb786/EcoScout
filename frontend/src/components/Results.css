@@ -440,6 +440,10 @@
   overflow-wrap: anywhere;
 }
 
+.plate-text-center {
+  text-align: center;
+}
+
 .plate-raw {
   font-size: 0.75rem;
   color: var(--text-tertiary);
@@ -832,5 +836,3 @@
     padding: 4px 6px;
   }
 }
-
-
