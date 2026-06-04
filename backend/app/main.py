@@ -74,11 +74,11 @@ class LoginRequest(BaseModel):
 
 pipeline = ViolationPipeline(
     litter_model_path=str(BASE_DIR / "models" / "litter_best.pt"),
-    smoke_model_path=str(BASE_DIR / "models" / "smoke_best.pt"),
+    smoke_model_path=str(BASE_DIR / "models" / "smoke_detection.pt"),
     vehicle_model_path=str(BASE_DIR / "models" / "yolov8s.pt"),
     plate_model_path=str(BASE_DIR / "models" / "plate_best.pt"),
     litter_conf=_env_float("LITTER_CONF", 0.35),
-    smoke_conf=_env_float("SMOKE_CONF", 0.40),
+    smoke_conf=_env_float("SMOKE_CONF", 0.003),
     vehicle_conf=_env_float("VEHICLE_CONF", 0.30),
     plate_conf=_env_float("PLATE_CONF", 0.30),
     vehicle_recover_conf=_env_float("VEHICLE_RECOVER_CONF", 0.15),
@@ -453,7 +453,7 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
     annotated, records = pipeline.analyze_frame(
-        frame, source_name=file.filename, source_type="image")
+        frame.copy(), source_name=file.filename, source_type="image")
     records = deduplicate_records(records)
     analysis_id = str(uuid.uuid4())
     timestamp_real = _current_timestamp()
@@ -541,7 +541,7 @@ async def analyze_video(
     out_path = VIDEOS_DIR / out_name
     writer = cv2.VideoWriter(
         str(out_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
+        cv2.VideoWriter_fourcc(*"avc1"),
         fps,
         (width, height),
     )
@@ -557,7 +557,7 @@ async def analyze_video(
 
             if frame_index % frame_stride == 0:
                 annotated, records = pipeline.analyze_frame(
-                    frame,
+                    frame.copy(),
                     source_name=file.filename,
                     frame_index=frame_index,
                     source_type="video",
@@ -572,12 +572,17 @@ async def analyze_video(
                     ann_name = f"{base}_annot.jpg"
                     ann_path = IMAGES_DIR / ann_name
                     _save_image_safely(annotated, ann_path)
-                    ann_rel = f"/evidence/images/{ann_name}"
-                    ann_abs = f"http://127.0.0.1:8000/evidence/images/{ann_name}"
+
+                    clean_name = f"{base}_clean.jpg"
+                    clean_path = IMAGES_DIR / clean_name
+                    _save_image_safely(frame, clean_path)
+
+                    clean_rel = f"/evidence/images/{clean_name}"
+                    clean_abs = f"http://127.0.0.1:8000/evidence/images/{clean_name}"
 
                     for i, rec in enumerate(records):
-                        rec["frame_image_url"] = ann_rel
-                        rec["frame_image_url_abs"] = ann_abs
+                        rec["frame_image_url"] = clean_rel
+                        rec["frame_image_url_abs"] = clean_abs
 
                         vb = rec.get("vehicle_bbox")
                         if vb:
@@ -602,8 +607,8 @@ async def analyze_video(
                             if _save_image_safely(plate_crop, ppath):
                                 rec["plate_crop_url"] = f"/evidence/images/{pname}"
                                 rec["plate_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{pname}"
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error("Error saving frame or crops: %s", e)
             else:
                 writer.write(frame)
 

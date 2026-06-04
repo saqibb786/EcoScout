@@ -219,8 +219,25 @@ class ViolationEngine:
         if source_type == "video" and (frame_index == 0 or frame_index is None):
             self.tracker.reset()
 
-        # Pass 1: Sequential inference
-        violations = self.detectors["litter"].detect(frame) + self.detectors["smoke"].detect(frame)
+        # Pass 1: Parallel inference for Litter and Smoke
+        import concurrent.futures
+        
+        smoke_model = self.detectors["smoke"].model
+        smoke_cls_ids = {cid for cid, name in smoke_model.names.items() if "smoke" in name.lower()}
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_litter = executor.submit(self.detectors["litter"].detect, frame)
+            future_smoke = executor.submit(self.detectors["smoke"].detect, frame, smoke_cls_ids)
+            
+            litter_detections = future_litter.result()
+            smoke_detections = future_smoke.result()
+
+        violations = litter_detections + smoke_detections
+        
+        # If no violations are detected, return early and bypass vehicle and plate detection
+        if not violations:
+            return frame, []
+
         vehicles = self.detectors["vehicle"].detect(frame, class_filter=COCO_VEHICLE_IDS)
         plates = self.detectors["plate"].detect(frame)
 
@@ -245,10 +262,9 @@ class ViolationEngine:
             viol_class = viol["class"]
             
             # Map class name to user's display format
-            mapped_violation = "Litter Detection"
-            if viol_class == "smoke":
+            if "smoke" in viol_class.lower():
                 mapped_violation = "Smoke Detection"
-            elif viol_class == "litter":
+            elif "litter" in viol_class.lower() or "trash" in viol_class.lower():
                 mapped_violation = "Litter Detection"
             else:
                 mapped_violation = viol_class
@@ -322,9 +338,9 @@ class ViolationEngine:
             dist = self._dist(v_bbox, v["bbox"])
             
             # Strict Validation Logic
-            if viol_class == "smoke" and overlap == 0:
+            if "smoke" in viol_class.lower() and overlap == 0:
                 continue  # Smoke must overlap with the vehicle
-            if viol_class == "litter" and overlap == 0 and dist > 250:
+            if ("litter" in viol_class.lower() or "trash" in viol_class.lower()) and overlap == 0 and dist > 250:
                 continue  # Litter must be within a reasonable distance
                 
             score = overlap + (1.0 / (1.0 + dist / 150.0))

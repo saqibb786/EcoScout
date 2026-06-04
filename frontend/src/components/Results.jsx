@@ -18,6 +18,13 @@ function fmtPercent(value) {
     return `${Math.round(Number(value) * 100)}%`;
 }
 
+function formatVideoTime(seconds) {
+    if (typeof seconds !== 'number' || isNaN(seconds)) return '-';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 async function cropViolationPreview(imageUrl, bbox) {
     if (!imageUrl || !Array.isArray(bbox) || bbox.length < 4) return null;
 
@@ -73,7 +80,7 @@ function AnalysisSummary({ records }) {
     );
 }
 
-function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeholderTitle }) {
+function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeholderTitle, sourceType }) {
     if (isPlaceholder) {
         return (
             <article className="analysis-record-card placeholder" style={{ opacity: 0.85 }}>
@@ -105,7 +112,7 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
                         </dl>
 
                         <div className="analysis-meta-row">
-                            No evidence for this violation type.
+                            {sourceType === 'video' ? 'No evidence for this violation type.' : 'Image Evidence'}
                         </div>
                     </div>
                 </div>
@@ -119,18 +126,21 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
     const visiblePlate = rawPlate || (hasOnlyMasked ? 'Not readable' : maskedPlate);
     const hasPlate = Boolean(detection.plate_bbox);
     const [violationPreview, setViolationPreview] = useState(null);
+    const isZeroConf = Math.round(Number(detection.violation_confidence || 0) * 100) === 0;
 
     useEffect(() => {
         let active = true;
 
-        cropViolationPreview(sourceImageUrl, detection.violation_bbox).then((preview) => {
-            if (active) setViolationPreview(preview);
-        });
+        if (!isZeroConf) {
+            cropViolationPreview(sourceImageUrl, detection.violation_bbox).then((preview) => {
+                if (active) setViolationPreview(preview);
+            });
+        }
 
         return () => {
             active = false;
         };
-    }, [sourceImageUrl, detection.violation_bbox]);
+    }, [sourceImageUrl, detection.violation_bbox, isZeroConf]);
 
     return (
         <article className={`analysis-record-card ${(detection.violation || '').toLowerCase()}`}>
@@ -139,12 +149,16 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
                     <span className="record-kicker">Record #{index + 1}</span>
                     <h5>{detection.violation || 'Unknown Violation'}</h5>
                 </div>
-                <span className="record-confidence">{fmtPercent(detection.violation_confidence)} confidence</span>
+                <span className="record-confidence" style={isZeroConf ? { background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' } : undefined}>
+                    {isZeroConf ? 'Not detected' : `${fmtPercent(detection.violation_confidence)} confidence`}
+                </span>
             </div>
 
             <div className="analysis-record-layout">
                 <div className="analysis-record-image">
-                    {violationPreview ? (
+                    {isZeroConf ? (
+                        <div className="violation-image-placeholder">No crop available</div>
+                    ) : violationPreview ? (
                         <img src={violationPreview} alt={`Violation crop for record ${index + 1}`} className="frame-image" />
                     ) : (
                         <div className="violation-image-placeholder">Violation crop unavailable</div>
@@ -155,24 +169,34 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
                     <div className="plate-identity-block">
                         <span className="info-label">Number Plate</span>
                         <div className="plate-display">
-                            <span className="plate-text-display">{visiblePlate}</span>
-                            {!rawPlate && hasOnlyMasked && <span className="plate-raw">OCR could not reliably read full characters.</span>}
+                            <span className="plate-text-display" style={isZeroConf ? { color: 'var(--text-secondary)' } : undefined}>
+                                {isZeroConf ? 'Not detected' : visiblePlate}
+                            </span>
+                            {!isZeroConf && !rawPlate && hasOnlyMasked && <span className="plate-raw">OCR could not reliably read full characters.</span>}
                         </div>
                     </div>
 
                     <dl className="analysis-detail-list">
-                        <div className="detail-row"><dt>Vehicle Confidence</dt><dd>{fmtPercent(detection.vehicle_confidence)}</dd></div>
-                        <div className="detail-row"><dt>Plate Confidence</dt><dd>{fmtPercent(detection.plate_confidence)}</dd></div>
-                        <div className="detail-row"><dt>OCR Confidence</dt><dd>{fmtPercent(detection.ocr_confidence)}</dd></div>
+                        <div className="detail-row"><dt>Vehicle Confidence</dt><dd>{isZeroConf ? '-' : fmtPercent(detection.vehicle_confidence)}</dd></div>
+                        <div className="detail-row"><dt>Plate Confidence</dt><dd>{isZeroConf ? '-' : fmtPercent(detection.plate_confidence)}</dd></div>
+                        <div className="detail-row"><dt>OCR Confidence</dt><dd>{isZeroConf ? '-' : fmtPercent(detection.ocr_confidence)}</dd></div>
                     </dl>
 
                     <div className="analysis-meta-row">
-                        {typeof detection.video_time_sec === 'number' ? `Video Time: ${detection.video_time_sec.toFixed(2)}s` : 'Image Evidence'}
-                        {detection.timestamp ? ` · ${new Date(detection.timestamp).toLocaleString()}` : ''}
+                        {isZeroConf ? (
+                            sourceType === 'video' ? 'No evidence for this violation type.' : 'Image Evidence'
+                        ) : (
+                            sourceType === 'video' && typeof detection.video_time_sec === 'number' ? (
+                                `Violation Time: ${formatVideoTime(detection.video_time_sec)}`
+                            ) : (
+                                'Image Evidence'
+                            )
+                        )}
+                        {!isZeroConf && sourceType === 'video' && detection.timestamp ? ` · ${new Date(detection.timestamp).toLocaleString()}` : ''}
                     </div>
                 </div>
             </div>
-            {!hasPlate && <div className="record-warning">Plate could not be detected in this record.</div>}
+            {!isZeroConf && !hasPlate && <div className="record-warning">Plate could not be detected in this record.</div>}
         </article>
     );
 }
@@ -300,7 +324,8 @@ const Results = ({ result, onAutoSave }) => {
                                 index={0}
                                 isPlaceholder={!smokeRecord}
                                 placeholderTitle="Smoke Detection"
-                                sourceImageUrl={smokeRecord ? asSourceUrl(smokeRecord.frame_image_url || result.annotated_image_url || result.annotated_image) : null}
+                                sourceType={result.source_type}
+                                sourceImageUrl={smokeRecord ? asSourceUrl(smokeRecord.frame_image_url || result.media_url || result.annotated_image_url || result.annotated_image) : null}
                             />
                             <DetectionCard
                                 key="litter"
@@ -308,7 +333,8 @@ const Results = ({ result, onAutoSave }) => {
                                 index={1}
                                 isPlaceholder={!litterRecord}
                                 placeholderTitle="Litter Detection"
-                                sourceImageUrl={litterRecord ? asSourceUrl(litterRecord.frame_image_url || result.annotated_image_url || result.annotated_image) : null}
+                                sourceType={result.source_type}
+                                sourceImageUrl={litterRecord ? asSourceUrl(litterRecord.frame_image_url || result.media_url || result.annotated_image_url || result.annotated_image) : null}
                             />
                         </div>
                     )}
