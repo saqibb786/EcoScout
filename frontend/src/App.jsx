@@ -11,15 +11,51 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 const HISTORY_KEY = 'ecoscout_cases_v2';
 
 function normalizeCase(result) {
-  const records = (result?.detections || result?.records || []).map((record) => ({
-    ...record,
-    violation_bbox: record.violation_bbox || record.bbox || null,
-    violation_confidence: record.violation_confidence ?? record.confidence ?? null,
-    violation: record.violation || record.class_name || 'unknown',
-    plate_text_raw: record.plate_text_raw || record.ocr_text || null,
-    plate_text: record.plate_text || record.ocr_text || null,
-    ocr_confidence: record.ocr_confidence ?? null,
-  }));
+  let records = (result?.detections || result?.records || []).map((record) => {
+    let violationName = record.violation || record.class_name || 'unknown';
+    if (violationName.toLowerCase().includes('smoke')) {
+      violationName = 'Smoke Detection';
+    } else if (violationName.toLowerCase().includes('litter') || violationName.toLowerCase().includes('trash')) {
+      violationName = 'Litter Detection';
+    }
+
+    return {
+      ...record,
+      violation_bbox: record.violation_bbox || record.bbox || null,
+      violation_confidence: record.violation_confidence ?? record.confidence ?? null,
+      violation: violationName,
+      plate_text_raw: record.plate_text_raw || record.ocr_text || null,
+      plate_text: record.plate_text || record.ocr_text || null,
+      ocr_confidence: record.ocr_confidence ?? null,
+      plate_confidence: record.plate_confidence ?? null,
+      vehicle_confidence: record.vehicle_confidence ?? null,
+    };
+  });
+
+  // Deduplicate: Keep only one Smoke Detection and one Litter Detection (highest confidence)
+  let bestSmoke = null;
+  let bestLitter = null;
+  const others = [];
+
+  for (const rec of records) {
+    if (rec.violation === 'Smoke Detection') {
+      if (!bestSmoke || (rec.violation_confidence || 0) > (bestSmoke.violation_confidence || 0)) {
+        bestSmoke = rec;
+      }
+    } else if (rec.violation === 'Litter Detection') {
+      if (!bestLitter || (rec.violation_confidence || 0) > (bestLitter.violation_confidence || 0)) {
+        bestLitter = rec;
+      }
+    } else {
+      others.push(rec);
+    }
+  }
+
+  records = [];
+  if (bestSmoke) records.push(bestSmoke);
+  if (bestLitter) records.push(bestLitter);
+  records.push(...others);
+
   const createdAt = result?.timestamp_real || result?.createdAt || result?.created_at || records[0]?.timestamp || new Date().toISOString();
 
   return {
@@ -27,7 +63,7 @@ function normalizeCase(result) {
     createdAt,
     source_type: result?.media_type || result?.source_type || 'image',
     source_name: result?.source_name || result?.detection_summary?.source_name || 'unknown',
-    violations_found: result?.violations_found ?? result?.total_detections ?? 0,
+    violations_found: records.length,
     total_frames: result?.total_frames,
     frame_stride: result?.frame_stride,
     records,
@@ -35,10 +71,11 @@ function normalizeCase(result) {
     detection_image_url: result?.detection_image_url || result?.annotated_image_url || result?.annotated_video_url || null,
     annotated_image_url: result?.detection_image_url || result?.annotated_image_url || result?.annotated_image || null,
     annotated_video_url: result?.detection_image_url || result?.annotated_video_url || result?.annotated_video || null,
-    violation_name: result?.violation_name || result?.detection_summary?.violation_name || 'unknown',
+    violation_name: records.length > 0 ? records[0].violation : 'unknown',
     timestamp_real: result?.timestamp_real || null,
-    detection_summary: result?.detection_summary || null,
+    detection_summary: result?.detection_summary ? { ...result.detection_summary, violations_found: records.length } : null,
     report_url: result?.report_url || null,
+    isSaved: result?.isSaved ?? false,
     raw: result,
   };
 }
@@ -114,11 +151,16 @@ function App() {
   const fetchHistory = async () => {
     const response = await fetch(`${API_BASE}/history`, { credentials: 'include' });
     if (response.status === 401) {
-      throw new Error('Not authenticated');
+      setIsAuthenticated(false);
+      throw new Error('Session expired. Please log in again.');
     }
     const data = await response.json();
     const items = data.history || data.analyses || [];
-    setHistory(items.map((item) => normalizeCase(item)));
+    setHistory(items.map((item) => {
+      const norm = normalizeCase(item);
+      norm.isSaved = true;
+      return norm;
+    }));
   };
 
   useEffect(() => {
@@ -173,22 +215,115 @@ function App() {
 
   const handleUploadSuccess = async (data) => {
     const normalizedCase = normalizeCase(data);
+    normalizedCase.isSaved = false;
     setLatestResults(normalizedCase);
-    setHistory((prev) => {
-      const updated = [normalizedCase, ...prev.filter((item) => item.id !== normalizedCase.id)];
-      return updated.slice(0, 50); // Keep max 50 cases
-    });
     setActiveTab('results');
-    // Re-fetch from Supabase to ensure history is fully in sync
+  };
+
+  const handleAutoSaveCase = async (caseData) => {
+    if (!caseData.records || caseData.records.length === 0) {
+      console.log('No violations detected; bypassing database persistence.');
+      return;
+    }
     try {
+      const response = await fetch(`${API_BASE}/analyses/save`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          analysis_id: caseData.id,
+          media_url: caseData.media_url,
+          media_type: caseData.source_type,
+          detection_image_url: caseData.detection_image_url,
+          violation_name: caseData.violation_name,
+          detection_summary: caseData.detection_summary || {},
+          total_detections: caseData.violations_found,
+          detections: caseData.records,
+          timestamp_real: caseData.timestamp_real,
+        }),
+      });
+
+      if (response.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to auto-save case to database');
+      }
+
+      const resData = await response.json();
+
+      setLatestResults((prev) => {
+        if (!prev || prev.id !== caseData.id) return prev;
+        return {
+          ...prev,
+          isSaved: true,
+          media_url: resData.media_url || prev.media_url,
+          detection_image_url: resData.detection_image_url || prev.detection_image_url,
+          annotated_image_url: resData.detection_image_url || prev.annotated_image_url,
+          annotated_video_url: resData.detection_image_url || prev.annotated_video_url,
+        };
+      });
+
       await fetchHistory();
-    } catch (err) {
-      console.warn('Could not refresh history after upload', err);
+    } catch (error) {
+      console.error('Error auto-saving case:', error);
+    }
+  };
+
+  const handleDeleteCase = async (id) => {
+    try {
+      const response = await fetch(`${API_BASE}/analyses/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (response.status === 401) {
+        setIsAuthenticated(false);
+        throw new Error('Session expired. Please log in again.');
+      }
+      if (!response.ok) {
+        throw new Error('Failed to delete case');
+      }
+      setLatestResults((prev) => (prev && prev.id === id ? null : prev));
+      await fetchHistory();
+    } catch (error) {
+      console.error('Error deleting case:', error);
+      alert('Failed to delete case: ' + error.message);
+    }
+  };
+
+  const handleDeleteBulk = async (ids) => {
+    try {
+      const response = await fetch(`${API_BASE}/analyses/delete-bulk`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (response.status === 401) {
+        setIsAuthenticated(false);
+        throw new Error('Session expired. Please log in again.');
+      }
+      if (!response.ok) {
+        throw new Error('Failed to delete selected cases');
+      }
+      setLatestResults((prev) => {
+        if (!prev) return null;
+        if (!ids || ids.includes(prev.id)) return null;
+        return prev;
+      });
+      await fetchHistory();
+    } catch (error) {
+      console.error('Error bulk deleting cases:', error);
+      alert('Failed to delete cases: ' + error.message);
     }
   };
 
   const handleViewResult = (result) => {
-    setLatestResults(normalizeCase(result));
+    const normalized = normalizeCase(result);
+    normalized.isSaved = true;
+    setLatestResults(normalized);
     setActiveTab('results');
   };
 
@@ -282,13 +417,15 @@ function App() {
           )}
 
           {activeTab === 'results' && (
-            <Results result={latestResults} />
+            <Results result={latestResults} onAutoSave={handleAutoSaveCase} />
           )}
 
           {activeTab === 'history' && (
             <History
               history={history}
               onView={handleViewResult}
+              onDelete={handleDeleteCase}
+              onDeleteBulk={handleDeleteBulk}
             />
           )}
 

@@ -239,8 +239,26 @@ class ViolationEngine:
 
         # Pass 3: Match Violations to Vehicles
         records = []
+        has_smoke = False
+        has_litter = False
         for viol in violations:
-            vehicle = self._match_vehicle(viol["bbox"], vehicles, viol["class"])
+            viol_class = viol["class"]
+            
+            # Map class name to user's display format
+            mapped_violation = "Litter Detection"
+            if viol_class == "smoke":
+                mapped_violation = "Smoke Detection"
+            elif viol_class == "litter":
+                mapped_violation = "Litter Detection"
+            else:
+                mapped_violation = viol_class
+            
+            if mapped_violation == "Smoke Detection" and has_smoke:
+                continue
+            if mapped_violation == "Litter Detection" and has_litter:
+                continue
+            
+            vehicle = self._match_vehicle(viol["bbox"], vehicles, viol_class)
             plate_data = None
             match_strategy = "spatial"
             
@@ -258,7 +276,7 @@ class ViolationEngine:
                 "source": source_name,
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "frame_index": frame_index,
-                "violation": viol["class"],
+                "violation": mapped_violation,
                 "violation_confidence": round(viol["confidence"], 4),
                 "violation_bbox": viol["bbox"],
                 "vehicle_id": vehicle.get("id"),
@@ -273,6 +291,11 @@ class ViolationEngine:
                 "ocr_confidence": round(plate_data["ocr_conf"], 4) if plate_data and plate_data["ocr_conf"] else None,
             }
             records.append(record)
+            
+            if mapped_violation == "Smoke Detection":
+                has_smoke = True
+            elif mapped_violation == "Litter Detection":
+                has_litter = True
 
         annotated = self._annotate(frame.copy(), vehicles, violations, records)
         return annotated, records

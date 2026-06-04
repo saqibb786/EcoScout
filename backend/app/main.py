@@ -103,10 +103,17 @@ app.mount("/evidence", StaticFiles(directory=str(EVIDENCE_DIR)), name="evidence"
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if request.method != "OPTIONS" and request.url.path in PROTECTED_PATHS:
-        token = request.cookies.get(SESSION_COOKIE)
-        if not token or token not in ACTIVE_SESSIONS:
-            return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+    if request.method != "OPTIONS":
+        path = request.url.path
+        is_protected = False
+        for p in PROTECTED_PATHS:
+            if path == p or path.startswith(p + "/"):
+                is_protected = True
+                break
+        if is_protected:
+            token = request.cookies.get(SESSION_COOKIE)
+            if not token or token not in ACTIVE_SESSIONS:
+                return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
     return await call_next(request)
 
 
@@ -197,15 +204,75 @@ def _basename_from_url(url: str | None) -> str:
     return candidate or "unknown"
 
 
+def deduplicate_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    best_smoke = None
+    best_litter = None
+    other_records = []
+    
+    for rec in records:
+        viol = str(rec.get("violation") or rec.get("class_name") or "unknown")
+        conf = rec.get("violation_confidence") or rec.get("confidence") or 0.0
+        try:
+            conf = float(conf)
+        except (ValueError, TypeError):
+            conf = 0.0
+            
+        if "smoke" in viol.lower():
+            rec["violation"] = "Smoke Detection"
+            if "class_name" in rec:
+                rec["class_name"] = "Smoke Detection"
+            
+            best_conf = (best_smoke.get("violation_confidence") or best_smoke.get("confidence") or 0.0) if best_smoke else -1.0
+            try:
+                best_conf = float(best_conf)
+            except (ValueError, TypeError):
+                best_conf = -1.0
+                
+            if conf > best_conf:
+                best_smoke = rec
+        elif "litter" in viol.lower() or "trash" in viol.lower():
+            rec["violation"] = "Litter Detection"
+            if "class_name" in rec:
+                rec["class_name"] = "Litter Detection"
+            
+            best_conf = (best_litter.get("violation_confidence") or best_litter.get("confidence") or 0.0) if best_litter else -1.0
+            try:
+                best_conf = float(best_conf)
+            except (ValueError, TypeError):
+                best_conf = -1.0
+                
+            if conf > best_conf:
+                best_litter = rec
+        else:
+            other_records.append(rec)
+            
+    deduped = []
+    if best_smoke:
+        deduped.append(best_smoke)
+    if best_litter:
+        deduped.append(best_litter)
+    deduped.extend(other_records)
+    return deduped
+
+
 def _normalize_detection_row(row: dict[str, Any]) -> dict[str, Any]:
+    raw_violation = row.get("class_name") or row.get("violation") or "unknown"
+    if "smoke" in raw_violation.lower():
+        violation = "Smoke Detection"
+    elif "litter" in raw_violation.lower() or "trash" in raw_violation.lower():
+        violation = "Litter Detection"
+    else:
+        violation = raw_violation
+
     return {
         "frame_index": row.get("frame_index"),
-        "violation": row.get("class_name"),
-        "violation_confidence": row.get("confidence"),
-        "violation_bbox": row.get("bbox"),
-        "plate_text": row.get("ocr_text"),
-        "plate_text_raw": row.get("ocr_text"),
+        "violation": violation,
+        "violation_confidence": row.get("confidence") or row.get("violation_confidence"),
+        "violation_bbox": row.get("bbox") or row.get("violation_bbox"),
+        "plate_text": row.get("ocr_text") or row.get("plate_text"),
+        "plate_text_raw": row.get("ocr_text") or row.get("plate_text_raw"),
         "ocr_confidence": row.get("ocr_confidence"),
+        "plate_confidence": row.get("plate_confidence"),
         "vehicle_bbox": row.get("vehicle_bbox"),
         "vehicle_confidence": row.get("vehicle_confidence"),
         "match_strategy": row.get("match_strategy"),
@@ -217,9 +284,33 @@ def _normalize_detection_row(row: dict[str, Any]) -> dict[str, Any]:
 def _analysis_to_history_item(analysis: dict[str, Any], detections: list[dict[str, Any]]) -> dict[str, Any]:
     media_url = analysis.get("media_url")
     created_at = analysis.get("created_at")
-    total_detections = analysis.get("total_detections") or len(detections)
     detection_summary = analysis.get("detection_summary") or {}
     detection_image_url = analysis.get("detection_image_url") or media_url
+
+    full_detections = detection_summary.get("full_detections")
+    restored_detections = []
+    
+    if full_detections:
+        for matched in full_detections:
+            viol = str(matched.get("violation") or matched.get("class_name") or "unknown")
+            if "smoke" in viol.lower():
+                matched["violation"] = "Smoke Detection"
+            elif "litter" in viol.lower() or "trash" in viol.lower():
+                matched["violation"] = "Litter Detection"
+            
+            for k in ("violation_confidence", "vehicle_confidence", "plate_confidence", "ocr_confidence"):
+                if matched.get(k) is not None:
+                    try:
+                        matched[k] = float(matched[k])
+                    except (ValueError, TypeError):
+                        pass
+            restored_detections.append(matched)
+    else:
+        restored_detections = [_normalize_detection_row(row) for row in detections]
+
+    restored_detections = deduplicate_records(restored_detections)
+    total_detections = len(restored_detections)
+
     return {
         "id": analysis.get("id"),
         "created_at": created_at,
@@ -235,11 +326,11 @@ def _analysis_to_history_item(analysis: dict[str, Any], detections: list[dict[st
         "detection_image_url": detection_image_url,
         "annotated_image_url": detection_image_url if analysis.get("media_type") == "image" else None,
         "annotated_video_url": detection_image_url if analysis.get("media_type") == "video" else None,
-        "violation_name": analysis.get("violation_name") or detection_summary.get("violation_name") or _dominant_violation_name(detections),
-        "detection_summary": detection_summary,
+        "violation_name": analysis.get("violation_name") or detection_summary.get("violation_name") or _dominant_violation_name(restored_detections),
+        "detection_summary": {**detection_summary, "violations_found": total_detections},
         "report_url": analysis.get("report_url"),
-        "detections": [_normalize_detection_row(row) for row in detections],
-        "records": [_normalize_detection_row(row) for row in detections],
+        "detections": restored_detections,
+        "records": restored_detections,
         "raw": analysis,
     }
 
@@ -309,6 +400,50 @@ def debug_supabase() -> dict[str, Any]:
     }
 
 
+class SaveDetectionRow(BaseModel):
+    frame_index: int | None = None
+    violation: str | None = None
+    violation_confidence: float | None = None
+    violation_bbox: list[float] | None = None
+    plate_text: str | None = None
+    plate_text_raw: str | None = None
+    ocr_confidence: float | None = None
+    vehicle_bbox: list[float] | None = None
+    vehicle_confidence: float | None = None
+    match_strategy: str | None = None
+    timestamp: str | None = None
+    video_time_sec: float | None = None
+
+    # Extra fields returned by the pipeline or normalizer
+    source: str | None = None
+    vehicle_id: int | None = None
+    vehicle_class: str | None = None
+    plate_bbox: list[float] | None = None
+    plate_confidence: float | None = None
+    frame_image_url: str | None = None
+    frame_image_url_abs: str | None = None
+    vehicle_crop_url: str | None = None
+    vehicle_crop_url_abs: str | None = None
+    plate_crop_url: str | None = None
+    plate_crop_url_abs: str | None = None
+
+
+class SaveAnalysisPayload(BaseModel):
+    analysis_id: str
+    media_url: str
+    media_type: str
+    detection_image_url: str
+    violation_name: str
+    detection_summary: dict[str, Any]
+    total_detections: int
+    detections: list[SaveDetectionRow]
+    timestamp_real: str | None = None
+
+
+class DeleteBulkPayload(BaseModel):
+    ids: list[str] | None = None
+
+
 @app.post("/analyze/image")
 async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
     data = await file.read()
@@ -319,15 +454,23 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
 
     annotated, records = pipeline.analyze_frame(
         frame, source_name=file.filename, source_type="image")
+    records = deduplicate_records(records)
     analysis_id = str(uuid.uuid4())
     timestamp_real = _current_timestamp()
 
-    # Upload original media with correct content-type
-    original_ct = _guess_upload_content_type(file.filename or "image.jpg")
-    media_url = upload_media(data, dest_name=f"{analysis_id}_original_{file.filename}", content_type=original_ct)
+    # Save original image locally
+    original_ext = Path(file.filename or "image.jpg").suffix or ".jpg"
+    original_name = f"{analysis_id}_original{original_ext}"
+    original_path = IMAGES_DIR / original_name
+    original_path.write_bytes(data)
 
-    # Upload annotated detection image (always JPEG)
-    detection_image_url = _upload_image_result(annotated, f"{analysis_id}_annotated.jpg")
+    # Save annotated image locally
+    annotated_name = f"{analysis_id}_annotated.jpg"
+    annotated_path = IMAGES_DIR / annotated_name
+    _save_image_safely(annotated, annotated_path)
+
+    media_url = f"/evidence/images/{original_name}"
+    detection_image_url = f"/evidence/images/{annotated_name}"
 
     violation_name = _dominant_violation_name(records)
     detection_summary = {
@@ -337,62 +480,6 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
         "total_frames": None,
         "violation_name": violation_name,
     }
-
-    supabase = get_client()
-    if not supabase:
-        logger.error("analyze_image: Supabase client not configured — check SUPABASE_URL and SUPABASE_SERVICE_KEY env vars")
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase client not configured. Check backend .env file has valid SUPABASE_URL and SUPABASE_SERVICE_KEY. Hit /debug/supabase to diagnose.",
-        )
-    if not media_url:
-        logger.error("analyze_image: original media upload failed (data size=%d bytes, dest=%s)", len(data), f"{analysis_id}_original_{file.filename}")
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase upload failed for original image. Check backend console logs for details and ensure 'media' bucket exists and is public.",
-        )
-    if not detection_image_url:
-        logger.error("analyze_image: annotated image upload failed")
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase upload failed for annotated image. Check backend console logs for details.",
-        )
-
-    try:
-        analyses_row = {
-            "id": analysis_id,
-            "created_at": timestamp_real,
-            "timestamp_real": timestamp_real,
-            "media_url": media_url,
-            "media_type": "image",
-            "detection_image_url": detection_image_url,
-            "violation_name": violation_name,
-            "detection_summary": detection_summary,
-            "total_detections": len(records),
-        }
-        supabase.table("analyses").insert(analyses_row).execute()
-        logger.info("analyze_image: inserted analysis %s into DB", analysis_id)
-
-        detections_rows = []
-        for rec in records:
-            det = {
-                "id": str(uuid.uuid4()),
-                "analysis_id": analysis_id,
-                "frame_index": rec.get("frame_index"),
-                "class_name": rec.get("violation"),
-                "confidence": rec.get("violation_confidence") or rec.get("confidence"),
-                "bbox": rec.get("violation_bbox") or rec.get("bbox"),
-                "ocr_text": rec.get("plate_text") or rec.get("plate_text_raw"),
-                "ocr_confidence": rec.get("ocr_conf") or rec.get("ocr_confidence") or rec.get("plate_confidence"),
-            }
-            detections_rows.append(det)
-
-        if detections_rows:
-            supabase.table("detections").insert(detections_rows).execute()
-            logger.info("analyze_image: inserted %d detections for analysis %s", len(detections_rows), analysis_id)
-    except Exception as exc:
-        logger.error("analyze_image: DB insert failed for analysis %s: %s", analysis_id, exc)
-        raise HTTPException(status_code=500, detail=f"Could not persist image analysis to Supabase: {exc}")
 
     return {
         "analysis_id": analysis_id,
@@ -432,6 +519,8 @@ async def analyze_video(
 
     cap = cv2.VideoCapture(str(upload_path))
     if not cap.isOpened():
+        if upload_path.exists():
+            os.remove(upload_path)
         raise HTTPException(
             status_code=400, detail="Could not open uploaded video")
 
@@ -439,7 +528,16 @@ async def analyze_video(
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
 
-    out_name = f"video_{uuid.uuid4().hex[:12]}.mp4"
+    analysis_id = str(uuid.uuid4())
+    timestamp_real = _current_timestamp()
+
+    # Save original video locally with analysis_id
+    original_ext = Path(file.filename or "video.mp4").suffix or ".mp4"
+    original_name = f"{analysis_id}_original{original_ext}"
+    original_video_path = VIDEOS_DIR / original_name
+    original_video_path.write_bytes(original_upload_bytes)
+
+    out_name = f"{analysis_id}_annotated.mp4"
     out_path = VIDEOS_DIR / out_name
     writer = cv2.VideoWriter(
         str(out_path),
@@ -450,10 +548,6 @@ async def analyze_video(
 
     all_records: list[dict[str, Any]] = []
     frame_index = 0
-    analysis_id = str(uuid.uuid4())
-    timestamp_real = _current_timestamp()
-    media_url = None
-    detection_image_url = None
 
     try:
         while True:
@@ -517,14 +611,13 @@ async def analyze_video(
     finally:
         cap.release()
         writer.release()
+        if upload_path.exists():
+            os.remove(upload_path)
 
-    # Upload original video with correct content-type
-    original_ct = _guess_upload_content_type(file.filename or "video.mp4")
-    media_url = upload_media(original_upload_bytes, dest_name=f"{analysis_id}_original_{file.filename}", content_type=original_ct)
+    media_url = f"/evidence/videos/{original_name}"
+    detection_image_url = f"/evidence/videos/{out_name}"
 
-    # Upload annotated video
-    detection_image_url = _upload_video_result(out_path, f"{analysis_id}_annotated.mp4")
-
+    all_records = deduplicate_records(all_records)
     violation_name = _dominant_violation_name(all_records)
     detection_summary = {
         "source_name": file.filename,
@@ -533,67 +626,6 @@ async def analyze_video(
         "total_frames": frame_index,
         "violation_name": violation_name,
     }
-
-    supabase = get_client()
-    if not supabase:
-        logger.error("analyze_video: Supabase client not configured — check env vars")
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase client not configured. Check backend .env file. Hit /debug/supabase to diagnose.",
-        )
-    if not media_url:
-        logger.error("analyze_video: original video upload failed")
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase upload failed for original video. Check backend console logs and ensure 'media' bucket exists and is public.",
-        )
-    if not detection_image_url:
-        logger.error("analyze_video: annotated video upload failed")
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase upload failed for annotated video. Check backend console logs.",
-        )
-
-    try:
-        analyses_row = {
-            "id": analysis_id,
-            "created_at": timestamp_real,
-            "timestamp_real": timestamp_real,
-            "media_url": media_url,
-            "media_type": "video",
-            "detection_image_url": detection_image_url,
-            "violation_name": violation_name,
-            "detection_summary": detection_summary,
-            "total_detections": len(all_records),
-        }
-        supabase.table("analyses").insert(analyses_row).execute()
-        logger.info("analyze_video: inserted analysis %s into DB", analysis_id)
-
-        detections_rows = []
-        for rec in all_records:
-            det = {
-                "id": str(uuid.uuid4()),
-                "analysis_id": analysis_id,
-                "frame_index": rec.get("frame_index"),
-                "class_name": rec.get("violation"),
-                "confidence": rec.get("violation_confidence") or rec.get("confidence"),
-                "bbox": rec.get("violation_bbox") or rec.get("bbox"),
-                "ocr_text": rec.get("plate_text") or rec.get("plate_text_raw"),
-                "ocr_confidence": rec.get("ocr_conf") or rec.get("ocr_confidence") or rec.get("plate_confidence"),
-            }
-            detections_rows.append(det)
-
-        if detections_rows:
-            supabase.table("detections").insert(detections_rows).execute()
-            logger.info("analyze_video: inserted %d detections for analysis %s", len(detections_rows), analysis_id)
-    except Exception as exc:
-        logger.error("analyze_video: DB insert failed for analysis %s: %s", analysis_id, exc)
-        raise HTTPException(status_code=500, detail=f"Could not persist video analysis to Supabase: {exc}")
-    finally:
-        if upload_path.exists():
-            os.remove(upload_path)
-        if out_path.exists():
-            os.remove(out_path)
 
     return {
         "analysis_id": analysis_id,
@@ -610,6 +642,160 @@ async def analyze_video(
         "frame_stride": frame_stride,
         "violations_found": len(all_records),
     }
+
+
+def _local_path_from_url(url: str) -> Path | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    path_str = parsed.path
+    if "/evidence/images/" in path_str:
+        filename = path_str.split("/evidence/images/")[-1]
+        return IMAGES_DIR / filename
+    if "/evidence/videos/" in path_str:
+        filename = path_str.split("/evidence/videos/")[-1]
+        return VIDEOS_DIR / filename
+    return None
+
+
+@app.post("/analyses/save")
+async def save_analysis(payload: SaveAnalysisPayload):
+    # Rule 3: Skip saving to DB if no violations/detections were found (clean scan)
+    if not payload.detections or len(payload.detections) == 0:
+        logger.info("save_analysis: clean scan (no detections) — skipping database insert")
+        return {"status": "skipped_clean_scan", "analysis_id": payload.analysis_id}
+
+    supabase = get_client()
+    if not supabase:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase client not configured. Check backend .env file.",
+        )
+
+    # Prevent duplicates
+    try:
+        existing = supabase.table("analyses").select("id").eq("id", payload.analysis_id).execute()
+        if existing.data:
+            return {"status": "already_saved", "analysis_id": payload.analysis_id}
+    except Exception as exc:
+        logger.warning("save_analysis: duplicate check failed: %s", exc)
+
+    local_media = _local_path_from_url(payload.media_url)
+    local_annotated = _local_path_from_url(payload.detection_image_url)
+
+    media_supabase_url = None
+    annotated_supabase_url = None
+
+    if local_media and local_media.exists():
+        ct = _guess_upload_content_type(local_media.name)
+        media_supabase_url = upload_media(local_media, dest_name=local_media.name, content_type=ct)
+    
+    if not media_supabase_url:
+        media_supabase_url = payload.media_url
+
+    if local_annotated and local_annotated.exists():
+        ct = _guess_upload_content_type(local_annotated.name)
+        annotated_supabase_url = upload_media(local_annotated, dest_name=local_annotated.name, content_type=ct)
+    
+    if not annotated_supabase_url:
+        annotated_supabase_url = payload.detection_image_url
+
+    timestamp = payload.timestamp_real or _current_timestamp()
+
+    rec_dicts = [rec.dict() for rec in payload.detections]
+    deduped_dicts = deduplicate_records(rec_dicts)
+
+    summary_to_save = {**payload.detection_summary}
+    summary_to_save["full_detections"] = deduped_dicts
+    summary_to_save["violations_found"] = len(deduped_dicts)
+
+    try:
+        analyses_row = {
+            "id": payload.analysis_id,
+            "created_at": timestamp,
+            "timestamp_real": timestamp,
+            "media_url": media_supabase_url,
+            "media_type": payload.media_type,
+            "detection_image_url": annotated_supabase_url,
+            "violation_name": payload.violation_name,
+            "detection_summary": summary_to_save,
+            "total_detections": len(deduped_dicts),
+        }
+        supabase.table("analyses").insert(analyses_row).execute()
+
+        detections_rows = []
+        for item in deduped_dicts:
+            det = {
+                "id": str(uuid.uuid4()),
+                "analysis_id": payload.analysis_id,
+                "frame_index": item.get("frame_index"),
+                "class_name": item.get("violation"),
+                "confidence": item.get("violation_confidence"),
+                "bbox": item.get("violation_bbox"),
+                "ocr_text": item.get("plate_text"),
+                "ocr_confidence": item.get("ocr_confidence"),
+            }
+            detections_rows.append(det)
+
+        if detections_rows:
+            supabase.table("detections").insert(detections_rows).execute()
+
+        return {
+            "status": "success",
+            "analysis_id": payload.analysis_id,
+            "media_url": media_supabase_url,
+            "detection_image_url": annotated_supabase_url,
+        }
+    except Exception as exc:
+        logger.error("save_analysis: database insertion failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database insertion failed: {exc}",
+        )
+
+
+@app.delete("/analyses/{analysis_id}")
+async def delete_analysis(analysis_id: str):
+    supabase = get_client()
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    try:
+        # Delete dependent detections first
+        supabase.table("detections").delete().eq("analysis_id", analysis_id).execute()
+        # Delete analysis
+        supabase.table("analyses").delete().eq("id", analysis_id).execute()
+        logger.info("delete_analysis: deleted analysis %s from DB", analysis_id)
+        return {"status": "success", "deleted_id": analysis_id}
+    except Exception as exc:
+        logger.error("delete_analysis failed for %s: %s", analysis_id, exc)
+        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+
+
+@app.post("/analyses/delete-bulk")
+async def delete_analyses_bulk(payload: DeleteBulkPayload):
+    supabase = get_client()
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    try:
+        if payload.ids:
+            # Delete selected detections first
+            supabase.table("detections").delete().in_("analysis_id", payload.ids).execute()
+            # Delete selected analyses
+            supabase.table("analyses").delete().in_("id", payload.ids).execute()
+            logger.info("delete_analyses_bulk: deleted %d analyses", len(payload.ids))
+        else:
+            # Clear all
+            analyses_res = supabase.table("analyses").select("id").execute()
+            all_ids = [row["id"] for row in (analyses_res.data or [])]
+            if all_ids:
+                supabase.table("detections").delete().in_("analysis_id", all_ids).execute()
+                supabase.table("analyses").delete().in_("id", all_ids).execute()
+            logger.info("delete_analyses_bulk: cleared all analyses (count=%d)", len(all_ids))
+        return {"status": "success"}
+    except Exception as exc:
+        logger.error("delete_analyses_bulk failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Database error: {exc}")
+
 
 
 @app.get("/analyses")

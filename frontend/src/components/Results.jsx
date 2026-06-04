@@ -73,7 +73,46 @@ function AnalysisSummary({ records }) {
     );
 }
 
-function DetectionCard({ detection, index, sourceImageUrl }) {
+function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeholderTitle }) {
+    if (isPlaceholder) {
+        return (
+            <article className="analysis-record-card placeholder" style={{ opacity: 0.85 }}>
+                <div className="analysis-record-header">
+                    <div>
+                        <span className="record-kicker">Record #{index + 1}</span>
+                        <h5>{placeholderTitle}</h5>
+                    </div>
+                    <span className="record-confidence" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>Not detected</span>
+                </div>
+
+                <div className="analysis-record-layout">
+                    <div className="analysis-record-image">
+                        <div className="violation-image-placeholder">No crop available</div>
+                    </div>
+
+                    <div className="analysis-record-body">
+                        <div className="plate-identity-block">
+                            <span className="info-label">Number Plate</span>
+                            <div className="plate-display">
+                                <span className="plate-text-display" style={{ color: 'var(--text-secondary)' }}>Not detected</span>
+                            </div>
+                        </div>
+
+                        <dl className="analysis-detail-list">
+                            <div className="detail-row"><dt>Vehicle Confidence</dt><dd>-</dd></div>
+                            <div className="detail-row"><dt>Plate Confidence</dt><dd>-</dd></div>
+                            <div className="detail-row"><dt>OCR Confidence</dt><dd>-</dd></div>
+                        </dl>
+
+                        <div className="analysis-meta-row">
+                            No evidence for this violation type.
+                        </div>
+                    </div>
+                </div>
+            </article>
+        );
+    }
+
     const maskedPlate = detection.plate_text || 'Not detected';
     const rawPlate = detection.plate_text_raw || '';
     const hasOnlyMasked = Boolean(maskedPlate) && /^\*+$/.test(String(maskedPlate).replace(/\s+/g, ''));
@@ -125,7 +164,6 @@ function DetectionCard({ detection, index, sourceImageUrl }) {
                         <div className="detail-row"><dt>Vehicle Confidence</dt><dd>{fmtPercent(detection.vehicle_confidence)}</dd></div>
                         <div className="detail-row"><dt>Plate Confidence</dt><dd>{fmtPercent(detection.plate_confidence)}</dd></div>
                         <div className="detail-row"><dt>OCR Confidence</dt><dd>{fmtPercent(detection.ocr_confidence)}</dd></div>
-                        <div className="detail-row"><dt>Match Strategy</dt><dd>{detection.match_strategy || '-'}</dd></div>
                     </dl>
 
                     <div className="analysis-meta-row">
@@ -139,7 +177,13 @@ function DetectionCard({ detection, index, sourceImageUrl }) {
     );
 }
 
-const Results = ({ result }) => {
+const Results = ({ result, onAutoSave }) => {
+    useEffect(() => {
+        if (result && !result.isSaved && onAutoSave) {
+            onAutoSave(result);
+        }
+    }, [result?.id, result?.isSaved, onAutoSave]);
+
     if (!result) {
         return (
             <div className="results-empty">
@@ -153,13 +197,66 @@ const Results = ({ result }) => {
     }
 
     const { annotated_image_url, records = [] } = result;
+    const smokeRecord = records.find(r => r.violation === 'Smoke Detection');
+    const litterRecord = records.find(r => r.violation === 'Litter Detection');
     const annotatedUrl = asSourceUrl(result.annotated_video_url || result.annotated_image_url || annotated_image_url);
     const hasAnnotatedMedia = Boolean(annotatedUrl);
 
     return (
         <div className="results-container">
             <div className="results-header">
-                <h3>Detection Analysis</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h3>Detection Analysis</h3>
+                    {records.length === 0 ? (
+                        <span style={{
+                            fontSize: '0.8rem',
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            fontWeight: '600',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            color: '#10b981',
+                            border: '1px solid rgba(16, 185, 129, 0.2)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}>
+                            <CheckCircle size={12} />
+                            Clean Scan
+                        </span>
+                    ) : (
+                        <span style={{
+                            fontSize: '0.8rem',
+                            padding: '4px 10px',
+                            borderRadius: '12px',
+                            fontWeight: '600',
+                            background: result.isSaved ? 'rgba(34, 197, 94, 0.1)' : 'rgba(234, 179, 8, 0.1)',
+                            color: result.isSaved ? '#22c55e' : '#eab308',
+                            border: `1px solid ${result.isSaved ? 'rgba(34, 197, 94, 0.2)' : 'rgba(234, 179, 8, 0.2)'}`,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}>
+                            {result.isSaved ? (
+                                <>
+                                    <CheckCircle size={12} />
+                                    Synced with DB
+                                </>
+                            ) : (
+                                <>
+                                    <span style={{
+                                        display: 'inline-block',
+                                        width: '6px',
+                                        height: '6px',
+                                        borderRadius: '50%',
+                                        background: '#eab308',
+                                        boxShadow: '0 0 8px #eab308'
+                                    }} />
+                                    Saving to DB...
+                                </>
+                            )}
+                        </span>
+                    )}
+                </div>
                 <div className="results-actions">
                     <button className="download-btn" onClick={() => exportCaseReportPdf(result)}>
                         <FileText size={16} />
@@ -197,14 +294,22 @@ const Results = ({ result }) => {
                         </div>
                     ) : (
                         <div className="detections-list-expanded">
-                            {records.map((det, index) => (
-                                <DetectionCard
-                                    key={index}
-                                    detection={det}
-                                    index={index}
-                                    sourceImageUrl={asSourceUrl(det.frame_image_url || result.annotated_image_url || result.annotated_image)}
-                                />
-                            ))}
+                            <DetectionCard
+                                key="smoke"
+                                detection={smokeRecord}
+                                index={0}
+                                isPlaceholder={!smokeRecord}
+                                placeholderTitle="Smoke Detection"
+                                sourceImageUrl={smokeRecord ? asSourceUrl(smokeRecord.frame_image_url || result.annotated_image_url || result.annotated_image) : null}
+                            />
+                            <DetectionCard
+                                key="litter"
+                                detection={litterRecord}
+                                index={1}
+                                isPlaceholder={!litterRecord}
+                                placeholderTitle="Litter Detection"
+                                sourceImageUrl={litterRecord ? asSourceUrl(litterRecord.frame_image_url || result.annotated_image_url || result.annotated_image) : null}
+                            />
                         </div>
                     )}
                 </div>

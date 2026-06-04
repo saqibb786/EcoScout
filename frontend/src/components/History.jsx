@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, ChevronRight, FileDown, CheckSquare, Square, FileText } from 'lucide-react';
+import { View, ChevronRight, FileDown, CheckSquare, Square, FileText, Trash2 } from 'lucide-react';
 import './History.css';
 import { exportCaseReportPdf } from '../utils/reportPdf';
 
@@ -13,7 +13,7 @@ function asSourceUrl(pathOrUrl) {
   return `${API_BASE}${pathOrUrl}`;
 }
 
-const History = ({ history, onView }) => {
+const History = ({ history, onView, onDelete, onDeleteBulk }) => {
   const [selectedIds, setSelectedIds] = useState([]);
 
   const selectedItems = useMemo(
@@ -52,10 +52,80 @@ const History = ({ history, onView }) => {
               {selectedIds.length === history.length && history.length > 0 ? 'Deselect All' : 'Select All'}
             </button>
           </div>
-          <div className="history-actions-right">
+          <div className="history-actions-right" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {selectedIds.length > 0 && (
+              <button
+                className="btn-delete-selected"
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected cases from the database?`)) {
+                    onDeleteBulk(selectedIds);
+                    setSelectedIds([]);
+                  }
+                }}
+                style={{
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  color: 'var(--accent-primary, #10b981)',
+                  padding: '8px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  borderRadius: 'var(--radius-md, 12px)',
+                  fontSize: '0.88rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(16, 185, 129, 0.25)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
+                }}
+              >
+                <Trash2 size={16} />
+                Delete Selected ({selectedIds.length})
+              </button>
+            )}
             <button className="btn-report" onClick={handleBulkReport} disabled={selectedItems.length === 0}>
               <FileText size={16} />
               Import as Report
+            </button>
+            <button
+              className="btn-clear-all"
+              onClick={() => {
+                if (window.confirm("WARNING: Are you sure you want to delete ALL cases in history from the database? This cannot be undone.")) {
+                  onDeleteBulk(null);
+                  setSelectedIds([]);
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                color: 'rgba(16, 185, 129, 0.8)',
+                padding: '8px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                borderRadius: 'var(--radius-md, 12px)',
+                fontSize: '0.88rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)';
+                e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                e.currentTarget.style.color = 'var(--accent-primary, #10b981)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                e.currentTarget.style.color = 'rgba(16, 185, 129, 0.8)';
+              }}
+            >
+              <Trash2 size={16} />
+              Clear All
             </button>
           </div>
         </div>
@@ -140,6 +210,35 @@ const History = ({ history, onView }) => {
                   title={item.report_url ? 'Download saved report' : 'Generate & download report'}
                 >
                   <FileDown size={18} />
+                </button>
+                <button
+                  className="btn-delete-item"
+                  onClick={() => {
+                    if (window.confirm("Are you sure you want to delete this selective instance from the history and database?")) {
+                      onDelete(item.id);
+                    }
+                  }}
+                  title="Delete case from database"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--accent-primary, #10b981)',
+                    padding: '6px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  <Trash2 size={18} />
                 </button>
                 <button 
                   className="btn-view"
