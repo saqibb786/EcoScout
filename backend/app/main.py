@@ -562,6 +562,7 @@ async def analyze_video(
 
     analysis_id = str(uuid.uuid4())
     timestamp_real = _current_timestamp()
+    best_vehicle_plates = {}
 
     # Save original video locally with analysis_id
     original_ext = Path(file.filename or "video.mp4").suffix or ".mp4"
@@ -639,6 +640,21 @@ async def analyze_video(
                             if _save_image_safely(plate_crop, ppath):
                                 rec["plate_crop_url"] = f"/evidence/images/{pname}"
                                 rec["plate_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{pname}"
+
+                        # Cache best plate read and crop details per tracked vehicle ID
+                        v_id = rec.get("vehicle_id")
+                        if v_id is not None and rec.get("plate_text_raw"):
+                            ocr_conf = rec.get("ocr_confidence") or 0.0
+                            if v_id not in best_vehicle_plates or ocr_conf > best_vehicle_plates[v_id]["ocr_confidence"]:
+                                best_vehicle_plates[v_id] = {
+                                    "plate_text": rec.get("plate_text"),
+                                    "plate_text_raw": rec.get("plate_text_raw"),
+                                    "ocr_confidence": ocr_conf,
+                                    "plate_bbox": rec.get("plate_bbox"),
+                                    "plate_confidence": rec.get("plate_confidence"),
+                                    "plate_crop_url": rec.get("plate_crop_url"),
+                                    "plate_crop_url_abs": rec.get("plate_crop_url_abs")
+                                }
                 except Exception as e:
                     logger.error("Error saving frame or crops: %s", e)
             else:
@@ -653,6 +669,19 @@ async def analyze_video(
 
     media_url = f"/evidence/videos/{original_name}"
     detection_image_url = f"/evidence/videos/{out_name}"
+
+    # Backfill plate texts and crops from the best detection of that vehicle in the video history
+    for rec in all_records:
+        v_id = rec.get("vehicle_id")
+        if v_id is not None and v_id in best_vehicle_plates:
+            best = best_vehicle_plates[v_id]
+            rec["plate_text"] = best["plate_text"]
+            rec["plate_text_raw"] = best["plate_text_raw"]
+            rec["ocr_confidence"] = best["ocr_confidence"]
+            rec["plate_bbox"] = best["plate_bbox"]
+            rec["plate_confidence"] = best["plate_confidence"]
+            rec["plate_crop_url"] = best["plate_crop_url"]
+            rec["plate_crop_url_abs"] = best["plate_crop_url_abs"]
 
     all_records = deduplicate_records(all_records)
     violation_name = _dominant_violation_name(all_records)
