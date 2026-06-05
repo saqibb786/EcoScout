@@ -151,44 +151,48 @@ class OCREngine:
         for roi in rois:
             for variant in self._get_variants(roi):
                 try:
-                    res = self._reader.readtext(variant, detail=1, paragraph=False, allowlist="0123456789٠١٢٣٤٥٦٧٨٩")
+                    res = self._reader.readtext(
+                        variant,
+                        detail=1,
+                        paragraph=False,
+                        allowlist="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                    )
                 except Exception:
                     continue
 
                 for row in res:
                     conf = float(row[2])
-                    digits = self._normalize_digits(str(row[1]))
-                    if digits and 2 <= len(digits) <= 6:
-                        candidates.append((digits, conf))
-                        if conf >= 0.88 and 3 <= len(digits) <= 5:
-                            return digits, conf
+                    text = self._normalize_text(str(row[1]))
+                    if text and 3 <= len(text) <= 9:
+                        candidates.append((text, conf))
+                        if conf >= 0.88 and 4 <= len(text) <= 8:
+                            return text, conf
 
         if not candidates:
             return None, None
 
         agg = {}
-        for digits, conf in candidates:
-            if digits not in agg:
-                agg[digits] = {"count": 0, "best_conf": 0.0, "sum_conf": 0.0}
-            agg[digits]["count"] += 1
-            agg[digits]["sum_conf"] += conf
-            agg[digits]["best_conf"] = max(agg[digits]["best_conf"], conf)
+        for text, conf in candidates:
+            if text not in agg:
+                agg[text] = {"count": 0, "best_conf": 0.0, "sum_conf": 0.0}
+            agg[text]["count"] += 1
+            agg[text]["sum_conf"] += conf
+            agg[text]["best_conf"] = max(agg[text]["best_conf"], conf)
 
-        best_digits, best_score, best_conf = None, -1.0, 0.0
-        for digits, s in agg.items():
+        best_text, best_score, best_conf = None, -1.0, 0.0
+        for text, s in agg.items():
             score = (s["sum_conf"] / s["count"] * 0.55) + (s["best_conf"] * 0.30) + (min(s["count"], 5) * 0.03)
-            score += 0.10 if 3 <= len(digits) <= 5 else 0.0
+            score += 0.10 if 4 <= len(text) <= 8 else 0.0
             if score > best_score:
-                best_score, best_digits, best_conf = score, digits, s["best_conf"]
+                best_score, best_text, best_conf = score, text, s["best_conf"]
 
         if best_conf < 0.50:
             return None, best_conf
-        return best_digits, best_conf
+        return best_text, best_conf
 
     @staticmethod
-    def _normalize_digits(text: str) -> str:
-        dmap = {"٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4", "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9"}
-        return re.sub(r"[^0-9]", "", "".join(dmap.get(c, c) for c in text))
+    def _normalize_text(text: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", text.upper())
 
     @staticmethod
     def _get_variants(img: np.ndarray) -> list[np.ndarray]:
