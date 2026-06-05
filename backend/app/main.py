@@ -472,6 +472,38 @@ async def analyze_image(file: UploadFile = File(...)) -> dict[str, Any]:
     media_url = f"/evidence/images/{original_name}"
     detection_image_url = f"/evidence/images/{annotated_name}"
 
+    # Generate clean crops (vehicle and license plate)
+    clean_rel = media_url
+    clean_abs = f"http://127.0.0.1:8000{media_url}"
+
+    for i, rec in enumerate(records):
+        rec["frame_image_url"] = clean_rel
+        rec["frame_image_url_abs"] = clean_abs
+
+        vb = rec.get("vehicle_bbox")
+        if vb:
+            vx1, vy1, vx2, vy2 = pipeline._clip_bbox(
+                vb, frame.shape[1], frame.shape[0]
+            )
+            vehicle_crop = frame[vy1:vy2, vx1:vx2]
+            vname = f"{analysis_id}_rec{i}_vehicle.jpg"
+            vpath = IMAGES_DIR / vname
+            if _save_image_safely(vehicle_crop, vpath):
+                rec["vehicle_crop_url"] = f"/evidence/images/{vname}"
+                rec["vehicle_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{vname}"
+
+        pb = rec.get("plate_bbox")
+        if pb:
+            px1, py1, px2, py2 = pipeline._clip_bbox(
+                pb, frame.shape[1], frame.shape[0]
+            )
+            plate_crop = frame[py1:py2, px1:px2]
+            pname = f"{analysis_id}_rec{i}_plate.jpg"
+            ppath = IMAGES_DIR / pname
+            if _save_image_safely(plate_crop, ppath):
+                rec["plate_crop_url"] = f"/evidence/images/{pname}"
+                rec["plate_crop_url_abs"] = f"http://127.0.0.1:8000/evidence/images/{pname}"
+
     violation_name = _dominant_violation_name(records)
     detection_summary = {
         "source_name": file.filename,
@@ -709,6 +741,22 @@ async def save_analysis(payload: SaveAnalysisPayload):
 
     rec_dicts = [rec.dict() for rec in payload.detections]
     deduped_dicts = deduplicate_records(rec_dicts)
+
+    # Automatically upload local crop images (vehicle crop, plate crop, clean frame) to Supabase Storage
+    for item in deduped_dicts:
+        for crop_field in ("frame_image_url", "vehicle_crop_url", "plate_crop_url"):
+            val = item.get(crop_field)
+            if val:
+                local_p = _local_path_from_url(val)
+                if local_p and local_p.exists():
+                    try:
+                        ct = _guess_upload_content_type(local_p.name)
+                        uploaded_url = upload_media(local_p, dest_name=local_p.name, content_type=ct)
+                        if uploaded_url:
+                            item[crop_field] = uploaded_url
+                            item[f"{crop_field}_abs"] = uploaded_url
+                    except Exception as e:
+                        logger.error("Failed to upload crop %s to Supabase: %s", val, e)
 
     summary_to_save = {**payload.detection_summary}
     summary_to_save["full_detections"] = deduped_dicts

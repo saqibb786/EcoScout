@@ -215,19 +215,22 @@ class ViolationEngine:
         self.tracker = Tracker()
 
     def process_frame(self, frame: np.ndarray, source_name: str, frame_index: int | None, source_type: str):
+        # Create a completely clean copy of the frame to isolate OCR/Detection from any mutations
+        clean_frame = frame.copy()
+
         # Reset tracker for new videos
         if source_type == "video" and (frame_index == 0 or frame_index is None):
             self.tracker.reset()
 
-        # Pass 1: Parallel inference for Litter and Smoke
+        # Pass 1: Parallel inference for Litter and Smoke using copies
         import concurrent.futures
         
         smoke_model = self.detectors["smoke"].model
         smoke_cls_ids = {cid for cid, name in smoke_model.names.items() if "smoke" in name.lower()}
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            future_litter = executor.submit(self.detectors["litter"].detect, frame)
-            future_smoke = executor.submit(self.detectors["smoke"].detect, frame, smoke_cls_ids)
+            future_litter = executor.submit(self.detectors["litter"].detect, clean_frame.copy())
+            future_smoke = executor.submit(self.detectors["smoke"].detect, clean_frame.copy(), smoke_cls_ids)
             
             litter_detections = future_litter.result()
             smoke_detections = future_smoke.result()
@@ -236,13 +239,13 @@ class ViolationEngine:
         
         # If no violations are detected, return early and bypass vehicle and plate detection
         if not violations:
-            return frame, []
+            return clean_frame, []
 
-        vehicles = self.detectors["vehicle"].detect(frame, class_filter=COCO_VEHICLE_IDS)
-        plates = self.detectors["plate"].detect(frame)
+        vehicles = self.detectors["vehicle"].detect(clean_frame.copy(), class_filter=COCO_VEHICLE_IDS)
+        plates = self.detectors["plate"].detect(clean_frame.copy())
 
         # Pass 2: Plate-based Vehicle Inference
-        vehicles = self._infer_vehicles(vehicles, plates, frame.shape)
+        vehicles = self._infer_vehicles(vehicles, plates, clean_frame.shape)
 
         # Apply Tracking
         if source_type == "video":
@@ -281,9 +284,9 @@ class ViolationEngine:
             if vehicle:
                 plate = self._match_plate(vehicle["bbox"], plates)
                 if plate:
-                    plate_data = self._read_plate(frame, plate["bbox"], plate["confidence"], vehicle.get("id"))
+                    plate_data = self._read_plate(clean_frame, plate["bbox"], plate["confidence"], vehicle.get("id"))
                 else:
-                    plate_data = self._fallback_local_plate(frame, vehicle["bbox"], vehicle.get("id"))
+                    plate_data = self._fallback_local_plate(clean_frame, vehicle["bbox"], vehicle.get("id"))
             else:
                 # False positive: violation doesn't match any vehicle spatially
                 continue
@@ -313,7 +316,7 @@ class ViolationEngine:
             elif mapped_violation == "Litter Detection":
                 has_litter = True
 
-        annotated = self._annotate(frame.copy(), vehicles, violations, records)
+        annotated = self._annotate(clean_frame.copy(), vehicles, violations, records)
         return annotated, records
 
     # --- Engine Helpers ---

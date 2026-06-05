@@ -703,8 +703,7 @@ export async function exportCaseReportPdf(inputCase) {
 
       let vehicleCrop = null;
       if (item.record.vehicle_crop_url) {
-        const url =
-          item.record.vehicle_crop_url_abs || item.record.vehicle_crop_url;
+        const url = asSourceUrl(item.record.vehicle_crop_url);
         vehicleCrop = await fetchImageAsDataUrl(url);
       } else if (baseDataUrl && item.record.vehicle_bbox) {
         vehicleCrop = await cropImageRegion(
@@ -715,8 +714,7 @@ export async function exportCaseReportPdf(inputCase) {
 
       let plateCrop = null;
       if (item.record.plate_crop_url) {
-        const url =
-          item.record.plate_crop_url_abs || item.record.plate_crop_url;
+        const url = asSourceUrl(item.record.plate_crop_url);
         plateCrop = await fetchImageAsDataUrl(url);
       } else if (baseDataUrl && item.record.plate_bbox) {
         plateCrop = await cropImageRegion(baseDataUrl, item.record.plate_bbox);
