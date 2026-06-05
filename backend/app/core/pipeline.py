@@ -333,6 +333,15 @@ class ViolationEngine:
             # Map class name to user's display format
             if "smoke" in viol_class.lower():
                 mapped_violation = "Smoke Detection"
+                # Scale smoke confidence to make it consistent (out of 100)
+                # Raw range [threshold, 1.0] maps to [0.50, 1.0]
+                thresh = self.detectors["smoke"].conf
+                raw_conf = viol["confidence"]
+                if raw_conf >= thresh:
+                    denom = 1.0 - thresh
+                    if denom > 0:
+                        scaled_conf = 0.50 + (raw_conf - thresh) * 0.50 / denom
+                        viol["confidence"] = min(1.0, max(0.50, scaled_conf))
             elif "litter" in viol_class.lower() or "trash" in viol_class.lower():
                 mapped_violation = "Litter Detection"
             else:
