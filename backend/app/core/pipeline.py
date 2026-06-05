@@ -160,13 +160,75 @@ class OCREngine:
                 except Exception:
                     continue
 
-                for row in res:
-                    conf = float(row[2])
-                    text = self._normalize_text(str(row[1]))
-                    if text and 3 <= len(text) <= 9:
-                        candidates.append((text, conf))
-                        if conf >= 0.88 and 4 <= len(text) <= 8:
-                            return text, conf
+                if not res:
+                    continue
+
+                # Filter and normalize detected boxes
+                valid_dets = []
+                for bbox, val_text, conf in res:
+                    if conf < 0.50:
+                        continue
+                    clean = self._normalize_text(val_text)
+                    if clean:
+                        valid_dets.append((bbox, clean, conf))
+
+                if not valid_dets:
+                    continue
+
+                # Compute spatial properties of the boxes
+                processed = []
+                for bbox, clean_t, conf in valid_dets:
+                    xs = [pt[0] for pt in bbox]
+                    ys = [pt[1] for pt in bbox]
+                    num_pts = len(xs) if len(xs) > 0 else 1.0
+                    cX = sum(xs) / num_pts
+                    cY = sum(ys) / num_pts
+                    box_h = max(1.0, float(max(ys) - min(ys)))
+                    processed.append({
+                        "text": clean_t,
+                        "conf": conf,
+                        "cX": cX,
+                        "cY": cY,
+                        "h": box_h
+                    })
+
+                # Sort by vertical centroid to group into rows
+                processed.sort(key=lambda x: x["cY"])
+                rows = []
+                for item in processed:
+                    placed = False
+                    for r in rows:
+                        if abs(item["cY"] - r[0]["cY"]) < max(r[0]["h"], item["h"]) * 0.45:
+                            r.append(item)
+                            placed = True
+                            break
+                    if not placed:
+                        rows.append([item])
+
+                # Sort each row left-to-right (by horizontal centroid)
+                for r in rows:
+                    r.sort(key=lambda x: x["cX"])
+
+                # Sort rows top-to-bottom
+                rows.sort(key=lambda r: sum(x["cY"] for x in r) / len(r))
+
+                # Combine row texts and calculate confidence metrics
+                total_conf = 0.0
+                total_chars = 0
+                parts = []
+                for r in rows:
+                    row_txt = "".join(x["text"] for x in r)
+                    parts.append(row_txt)
+                    total_conf += sum(x["conf"] for x in r)
+                    total_chars += len(r)
+
+                combined_text = "".join(parts)
+                avg_conf = total_conf / total_chars if total_chars > 0 else 0.0
+
+                if combined_text and 3 <= len(combined_text) <= 9:
+                    candidates.append((combined_text, avg_conf))
+                    if avg_conf >= 0.88 and 4 <= len(combined_text) <= 8:
+                        return combined_text, avg_conf
 
         if not candidates:
             return None, None

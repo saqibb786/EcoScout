@@ -101,7 +101,7 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
                         <div className="plate-identity-block">
                             <span className="info-label">Number Plate</span>
                             <div className="plate-display">
-                                <span className="plate-text-display" style={{ color: 'var(--text-secondary)' }}>Not detected</span>
+                                <span className="plate-text-display">Not detected</span>
                             </div>
                         </div>
 
@@ -169,7 +169,7 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
                     <div className="plate-identity-block">
                         <span className="info-label">Number Plate</span>
                         <div className="plate-display">
-                            <span className="plate-text-display" style={isZeroConf ? { color: 'var(--text-secondary)' } : undefined}>
+                            <span className="plate-text-display">
                                 {isZeroConf ? 'Not detected' : visiblePlate}
                             </span>
                             {!isZeroConf && !rawPlate && hasOnlyMasked && <span className="plate-raw">OCR could not reliably read full characters.</span>}
