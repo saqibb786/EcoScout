@@ -362,8 +362,8 @@ async def login(payload: LoginRequest):
         key=SESSION_COOKIE,
         value=session_token,
         httponly=True,
-        samesite="lax",
-        secure=False,
+        samesite="none",
+        secure=True,
         path="/",
     )
     return response
@@ -381,7 +381,7 @@ async def logout(request: Request):
     if token:
         ACTIVE_SESSIONS.discard(token)
     response = JSONResponse({"authenticated": False})
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, path="/", samesite="none", secure=True)
     return response
 
 

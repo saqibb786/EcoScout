@@ -29,6 +29,9 @@ RUN mkdir -p /code/.cache && chmod -R 777 /code/.cache
 ENV HOME=/code
 ENV HF_HOME=/code/.cache
 
+# Pre-download EasyOCR models during build so they are baked into the image
+RUN python -c "import easyocr; easyocr.Reader(['en'])"
+
 # Copy all application files
 COPY . /code
 
