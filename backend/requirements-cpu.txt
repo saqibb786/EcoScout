@@ -8,6 +8,6 @@ python-multipart
 easyocr
 ultralytics
 opencv-python-headless
-numpy
+numpy<2
 supabase
 python-dotenv

@@ -93,7 +93,9 @@ app = FastAPI(
 allowed_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
 cors_origins_env = os.getenv("CORS_ORIGINS")
 if cors_origins_env:
-    allowed_origins.extend([o.strip() for o in cors_origins_env.split(",") if o.strip()])
+    # Clean any JSON array brackets or quotes if present in the secret
+    cleaned = cors_origins_env.replace("[", "").replace("]", "").replace('"', '').replace("'", "")
+    allowed_origins.extend([o.strip() for o in cleaned.split(",") if o.strip()])
 
 app.add_middleware(
     CORSMiddleware,
