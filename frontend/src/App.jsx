@@ -7,7 +7,12 @@ import History from './components/History';
 import AboutUs from './components/AboutUs';
 import './App.css';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
+let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
+// Clean up any copied parenthetical comments, spaces, or trailing slashes
+if (rawApiBase) {
+  rawApiBase = rawApiBase.split(/[ \t(]+/)[0].trim().replace(/\/+$/, '');
+}
+const API_BASE = rawApiBase;
 const HISTORY_KEY = 'ecoscout_cases_v2';
 
 function normalizeCase(result) {
