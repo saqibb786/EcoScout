@@ -3,7 +3,12 @@ import axios from 'axios';
 import { Upload, X, FileVideo, Image as ImageIcon, CheckCircle, AlertCircle, Wand2, Gauge, ShieldCheck } from 'lucide-react';
 import './UploadMedia.css';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
+// Clean up any copied parenthetical comments, spaces, or trailing slashes
+if (rawApiBase) {
+  rawApiBase = rawApiBase.split(/[ \t(]+/)[0].trim().replace(/\/+$/, '');
+}
+const API_BASE = rawApiBase;
 
 const UploadMedia = ({ onUploadSuccess }) => {
     const [file, setFile] = useState(null);
