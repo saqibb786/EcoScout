@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, Upload, FileText, Calendar, Users, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Upload, FileText, Calendar, Users, Menu, X, LogOut } from 'lucide-react';
 import './Sidebar.css';
 
-const Sidebar = ({ activeTab, setActiveTab }) => {
+const Sidebar = ({ activeTab, setActiveTab, onLogout }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -58,6 +58,18 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
             <span>{item.label}</span>
           </button>
         ))}
+        <button
+          className="nav-item logout-btn"
+          onClick={() => {
+            if (window.confirm('Are you sure you want to log out?')) {
+              onLogout();
+              setMobileOpen(false);
+            }
+          }}
+        >
+          <LogOut size={20} />
+          <span>Log Out</span>
+        </button>
       </nav>
 
       <div className="sidebar-footer">

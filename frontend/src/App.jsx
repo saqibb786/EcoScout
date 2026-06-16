@@ -375,6 +375,27 @@ function App() {
     setActiveTab('results');
   };
 
+  const handleLogout = async () => {
+    try {
+      const headers = {};
+      const token = getSessionToken();
+      if (token) {
+        headers['X-Session-Token'] = token;
+      }
+      await fetch(`${API_BASE}/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers
+      });
+    } catch (error) {
+      console.warn('Error during logout:', error);
+    } finally {
+      setIsAuthenticated(false);
+      setSessionToken('');
+      setActiveTab('dashboard');
+    }
+  };
+
   // Page titles and headers
   const pageHeaders = {
     dashboard: {
@@ -447,7 +468,7 @@ function App() {
 
   return (
     <div className="app-container">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
       
       <main className="main-content">
         <Header

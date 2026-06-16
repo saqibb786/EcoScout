@@ -130,6 +130,16 @@
   background-color: var(--text-tertiary);
 }
 
+.nav-item.logout-btn {
+  margin-top: auto;
+  color: #ff6b6b;
+}
+
+.nav-item.logout-btn:hover {
+  background-color: rgba(255, 107, 107, 0.08);
+  color: #ff4a4a;
+}
+
 @media (max-width: 1080px) {
   .sidebar {
     position: sticky;
@@ -176,6 +186,10 @@
     min-width: 100%;
     justify-content: flex-start;
     transform: none;
+  }
+
+  .nav-item.logout-btn {
+    margin-top: 8px;
   }
 
   .nav-item:hover {
