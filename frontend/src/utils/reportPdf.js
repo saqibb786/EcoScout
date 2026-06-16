@@ -825,9 +825,15 @@ export async function exportCaseReportPdf(inputCase) {
       const pdfBlob = doc.output('blob');
       const formData = new FormData();
       formData.append('file', pdfBlob, pdfFileName);
+      const headers = {};
+      const token = localStorage.getItem('ecoscout_token');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       const resp = await fetch(`${API_BASE}/analyses/${analysisId}/report`, {
         method: 'POST',
         credentials: 'include',
+        headers,
         body: formData,
       });
       if (resp.ok) {

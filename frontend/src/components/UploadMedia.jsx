@@ -75,9 +75,15 @@ const UploadMedia = ({ onUploadSuccess }) => {
         }
 
         try {
+            const headers = {};
+            const token = localStorage.getItem('ecoscout_token');
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             const response = await axios.post(`${API_BASE}${endpoint}`, formData, {
                 timeout: 180000,
                 withCredentials: true,
+                headers,
             });
 
             if (response.data) {
@@ -91,7 +97,11 @@ const UploadMedia = ({ onUploadSuccess }) => {
             console.error("Upload failed:", err);
 
             if (err.response?.status === 401) {
-                setError('Session expired. Please log in again.');
+                localStorage.removeItem('ecoscout_token');
+                setError('Session expired. Please log in again. Reloading...');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
                 return;
             }
 

@@ -119,6 +119,12 @@ async def auth_middleware(request: Request, call_next):
                 break
         if is_protected:
             token = request.cookies.get(SESSION_COOKIE)
+            if not token:
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    token = auth_header[7:].strip()
+                elif auth_header:
+                    token = auth_header.strip()
             if not token or token not in ACTIVE_SESSIONS:
                 return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
     return await call_next(request)
@@ -357,7 +363,11 @@ async def login(payload: LoginRequest):
 
     session_token = uuid.uuid4().hex
     ACTIVE_SESSIONS.add(session_token)
-    response = JSONResponse({"authenticated": True, "username": ADMIN_USERNAME})
+    response = JSONResponse({
+        "authenticated": True,
+        "username": ADMIN_USERNAME,
+        "token": session_token
+    })
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_token,
@@ -372,12 +382,25 @@ async def login(payload: LoginRequest):
 @app.get("/auth/me")
 async def auth_me(request: Request) -> dict[str, Any]:
     token = request.cookies.get(SESSION_COOKIE)
-    return {"authenticated": bool(token and token in ACTIVE_SESSIONS), "username": ADMIN_USERNAME if token and token in ACTIVE_SESSIONS else None}
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif auth_header:
+            token = auth_header.strip()
+    is_auth = bool(token and token in ACTIVE_SESSIONS)
+    return {"authenticated": is_auth, "username": ADMIN_USERNAME if is_auth else None}
 
 
 @app.post("/logout")
 async def logout(request: Request):
     token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif auth_header:
+            token = auth_header.strip()
     if token:
         ACTIVE_SESSIONS.discard(token)
     response = JSONResponse({"authenticated": False})
