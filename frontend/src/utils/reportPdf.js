@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getSessionToken } from "./auth";
 
 let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
 // Clean up any copied parenthetical comments, spaces, or trailing slashes
@@ -826,9 +827,9 @@ export async function exportCaseReportPdf(inputCase) {
       const formData = new FormData();
       formData.append('file', pdfBlob, pdfFileName);
       const headers = {};
-      const token = localStorage.getItem('ecoscout_token');
+      const token = getSessionToken();
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        headers['X-Session-Token'] = token;
       }
       const resp = await fetch(`${API_BASE}/analyses/${analysisId}/report`, {
         method: 'POST',

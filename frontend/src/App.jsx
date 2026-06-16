@@ -5,6 +5,7 @@ import UploadMedia from './components/UploadMedia';
 import Results from './components/Results';
 import History from './components/History';
 import AboutUs from './components/AboutUs';
+import { getSessionToken, setSessionToken } from './utils/auth';
 import './App.css';
 
 let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
@@ -155,9 +156,9 @@ function App() {
 
   const fetchHistory = async () => {
     const headers = {};
-    const token = localStorage.getItem('ecoscout_token');
+    const token = getSessionToken();
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      headers['X-Session-Token'] = token;
     }
     const response = await fetch(`${API_BASE}/history`, {
       credentials: 'include',
@@ -165,7 +166,7 @@ function App() {
     });
     if (response.status === 401) {
       setIsAuthenticated(false);
-      localStorage.removeItem('ecoscout_token');
+      setSessionToken('');
       throw new Error('Session expired. Please log in again.');
     }
     const data = await response.json();
@@ -181,9 +182,9 @@ function App() {
     const checkAuth = async () => {
       try {
         const headers = {};
-        const token = localStorage.getItem('ecoscout_token');
+        const token = getSessionToken();
         if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
+          headers['X-Session-Token'] = token;
         }
         const response = await fetch(`${API_BASE}/auth/me`, {
           credentials: 'include',
@@ -195,7 +196,7 @@ function App() {
           await fetchHistory();
         } else {
           setIsAuthenticated(false);
-          localStorage.removeItem('ecoscout_token');
+          setSessionToken('');
         }
       } catch (error) {
         console.warn('Could not verify authentication', error);
@@ -230,7 +231,7 @@ function App() {
 
       const data = await response.json();
       if (data.token) {
-        localStorage.setItem('ecoscout_token', data.token);
+        setSessionToken(data.token);
       }
 
       setIsAuthenticated(true);
@@ -255,9 +256,9 @@ function App() {
     }
     try {
       const headers = { 'Content-Type': 'application/json' };
-      const token = localStorage.getItem('ecoscout_token');
+      const token = getSessionToken();
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        headers['X-Session-Token'] = token;
       }
       const response = await fetch(`${API_BASE}/analyses/save`, {
         method: 'POST',
@@ -278,7 +279,7 @@ function App() {
 
       if (response.status === 401) {
         setIsAuthenticated(false);
-        localStorage.removeItem('ecoscout_token');
+        setSessionToken('');
         return;
       }
 
@@ -309,9 +310,9 @@ function App() {
   const handleDeleteCase = async (id) => {
     try {
       const headers = {};
-      const token = localStorage.getItem('ecoscout_token');
+      const token = getSessionToken();
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        headers['X-Session-Token'] = token;
       }
       const response = await fetch(`${API_BASE}/analyses/${id}`, {
         method: 'DELETE',
@@ -320,7 +321,7 @@ function App() {
       });
       if (response.status === 401) {
         setIsAuthenticated(false);
-        localStorage.removeItem('ecoscout_token');
+        setSessionToken('');
         throw new Error('Session expired. Please log in again.');
       }
       if (!response.ok) {
@@ -337,9 +338,9 @@ function App() {
   const handleDeleteBulk = async (ids) => {
     try {
       const headers = { 'Content-Type': 'application/json' };
-      const token = localStorage.getItem('ecoscout_token');
+      const token = getSessionToken();
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        headers['X-Session-Token'] = token;
       }
       const response = await fetch(`${API_BASE}/analyses/delete-bulk`, {
         method: 'POST',
@@ -349,7 +350,7 @@ function App() {
       });
       if (response.status === 401) {
         setIsAuthenticated(false);
-        localStorage.removeItem('ecoscout_token');
+        setSessionToken('');
         throw new Error('Session expired. Please log in again.');
       }
       if (!response.ok) {

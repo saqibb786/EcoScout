@@ -120,6 +120,8 @@ async def auth_middleware(request: Request, call_next):
         if is_protected:
             token = request.cookies.get(SESSION_COOKIE)
             if not token:
+                token = request.headers.get("X-Session-Token")
+            if not token:
                 auth_header = request.headers.get("Authorization", "")
                 if auth_header.startswith("Bearer "):
                     token = auth_header[7:].strip()
@@ -383,6 +385,8 @@ async def login(payload: LoginRequest):
 async def auth_me(request: Request) -> dict[str, Any]:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
+        token = request.headers.get("X-Session-Token")
+    if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
@@ -395,6 +399,8 @@ async def auth_me(request: Request) -> dict[str, Any]:
 @app.post("/logout")
 async def logout(request: Request):
     token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        token = request.headers.get("X-Session-Token")
     if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):

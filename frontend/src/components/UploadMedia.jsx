@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { getSessionToken, setSessionToken } from '../utils/auth';
 import { Upload, X, FileVideo, Image as ImageIcon, CheckCircle, AlertCircle, Wand2, Gauge, ShieldCheck } from 'lucide-react';
 import './UploadMedia.css';
 
@@ -76,9 +77,9 @@ const UploadMedia = ({ onUploadSuccess }) => {
 
         try {
             const headers = {};
-            const token = localStorage.getItem('ecoscout_token');
+            const token = getSessionToken();
             if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
+                headers['X-Session-Token'] = token;
             }
             const response = await axios.post(`${API_BASE}${endpoint}`, formData, {
                 timeout: 180000,
@@ -97,7 +98,7 @@ const UploadMedia = ({ onUploadSuccess }) => {
             console.error("Upload failed:", err);
 
             if (err.response?.status === 401) {
-                localStorage.removeItem('ecoscout_token');
+                setSessionToken('');
                 setError('Session expired. Please log in again. Reloading...');
                 setTimeout(() => {
                     window.location.reload();
