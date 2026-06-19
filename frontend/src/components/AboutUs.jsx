@@ -54,7 +54,7 @@ const AboutUs = () => {
       </div>
 
       <footer className="about-footer">
-        <p>© 2025 EcoScout. All rights reserved.</p>
+        <p>© 2026 EcoScout. All rights reserved.</p>
         <p>Built for cleaner, safer urban environments.</p>
       </footer>
     </div>
