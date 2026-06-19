@@ -477,7 +477,10 @@ class ViolationEngine:
             label += f"{v['class']} {v['confidence']:.2f}"
             cv2.putText(frame, label, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
         
+        matched_violation_bboxes = [r["violation_bbox"] for r in records if r.get("violation_bbox")]
         for v in violations:
+            if v["bbox"] not in matched_violation_bboxes:
+                continue
             x1, y1, x2, y2 = v["bbox"]
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
             cv2.putText(frame, f"{v['class']} {v['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
