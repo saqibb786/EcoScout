@@ -6,6 +6,7 @@ import Results from './components/Results';
 import History from './components/History';
 import AboutUs from './components/AboutUs';
 import { getSessionToken, setSessionToken } from './utils/auth';
+import { formatPKT } from './utils/date';
 import './App.css';
 
 let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
@@ -134,7 +135,7 @@ function Dashboard({ history, latestResults, setActiveTab }) {
           <p className="case-name">{dashboardInsights.latestCase.source_name}</p>
           <p className="case-meta">
             {dashboardInsights.latestCase.source_type === 'video' ? '🎬 Video' : '🖼️ Image'} •{' '}
-            {new Date(dashboardInsights.latestCase.createdAt).toLocaleString()}
+            {formatPKT(dashboardInsights.latestCase.createdAt)}
           </p>
           <p className="case-violations">
             {dashboardInsights.latestCase.violations_found} violation(s) detected

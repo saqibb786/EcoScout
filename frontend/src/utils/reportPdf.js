@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getSessionToken } from "./auth";
+import { formatPKT } from "./date";
 
 let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
 // Clean up any copied parenthetical comments, spaces, or trailing slashes
@@ -32,9 +33,7 @@ function fmtPercent(v) {
 
 function fmtDate(v) {
   if (!v) return "-";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleString();
+  return formatPKT(v);
 }
 
 function fmtPlate(record) {

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, ChevronRight, FileDown, CheckSquare, Square, FileText, Trash2 } from 'lucide-react';
 import './History.css';
 import { exportCaseReportPdf } from '../utils/reportPdf';
+import { formatPKT } from '../utils/date';
 
 let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
 // Clean up any copied parenthetical comments, spaces, or trailing slashes
@@ -42,7 +43,12 @@ const History = ({ history, onView, onDelete, onDeleteBulk }) => {
 
   const handleBulkReport = async () => {
     if (selectedItems.length === 0) return;
-    for (const item of selectedItems) {
+    for (let i = 0; i < selectedItems.length; i++) {
+      const item = selectedItems[i];
+      if (i > 0) {
+        // Wait 1 second between downloads to prevent browser spam-blocking multiple downloads
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
       await exportCaseReportPdf(item);
     }
   };
@@ -94,43 +100,7 @@ const History = ({ history, onView, onDelete, onDeleteBulk }) => {
             )}
             <button className="btn-report" onClick={handleBulkReport} disabled={selectedItems.length === 0}>
               <FileText size={16} />
-              Import as Report
-            </button>
-            <button
-              className="btn-clear-all"
-              onClick={() => {
-                if (window.confirm("WARNING: Are you sure you want to delete ALL cases in history from the database? This cannot be undone.")) {
-                  onDeleteBulk(null);
-                  setSelectedIds([]);
-                }
-              }}
-              style={{
-                background: 'transparent',
-                border: '1px solid rgba(16, 185, 129, 0.2)',
-                color: 'rgba(16, 185, 129, 0.8)',
-                padding: '8px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                borderRadius: 'var(--radius-md, 12px)',
-                fontSize: '0.88rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(16, 185, 129, 0.08)';
-                e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-                e.currentTarget.style.color = 'var(--accent-primary, #10b981)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.2)';
-                e.currentTarget.style.color = 'rgba(16, 185, 129, 0.8)';
-              }}
-            >
-              <Trash2 size={16} />
-              Clear All
+              Export as Report
             </button>
           </div>
         </div>
@@ -187,7 +157,7 @@ const History = ({ history, onView, onDelete, onDeleteBulk }) => {
                     {item.source_type.toUpperCase()}
                   </span>
                   <span className="timestamp">
-                    {new Date(item.timestamp_real || item.createdAt).toLocaleString()}
+                    {formatPKT(item.timestamp_real || item.createdAt)}
                   </span>
                 </div>
                 <h4>{item.violation_name || item.source_name || 'Untitled'}</h4>

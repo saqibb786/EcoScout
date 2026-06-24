@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -168,7 +168,7 @@ def _dominant_violation_name(records: list[dict[str, Any]]) -> str:
 
 
 def _current_timestamp() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _upload_image_result(image: np.ndarray, dest_name: str) -> str | None:
@@ -416,7 +416,7 @@ async def logout(request: Request):
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "time": datetime.now().isoformat(timespec="seconds")}
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
 @app.get("/debug/supabase")

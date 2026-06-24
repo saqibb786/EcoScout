@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, Car, FileText, TrendingUp } from 'lucide-react';
 import './Results.css';
 import { exportCaseReportPdf } from '../utils/reportPdf';
+import { formatPKT } from '../utils/date';
 
 let rawApiBase = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://saqibb786-ecoscout-api.hf.space';
 // Clean up any copied parenthetical comments, spaces, or trailing slashes
@@ -197,7 +198,7 @@ function DetectionCard({ detection, index, sourceImageUrl, isPlaceholder, placeh
                                 'Image Evidence'
                             )
                         )}
-                        {!isZeroConf && sourceType === 'video' && detection.timestamp ? ` · ${new Date(detection.timestamp).toLocaleString()}` : ''}
+                        {!isZeroConf && sourceType === 'video' && detection.timestamp ? ` · ${formatPKT(detection.timestamp)}` : ''}
                     </div>
                 </div>
             </div>
@@ -291,7 +292,7 @@ const Results = ({ result, onAutoSave }) => {
                         <FileText size={16} />
                         Download Detailed Report
                     </button>
-                    <span className="results-timestamp">{new Date(result.createdAt).toLocaleString()}</span>
+                    <span className="results-timestamp">{formatPKT(result.createdAt)}</span>
                 </div>
             </div>
 
