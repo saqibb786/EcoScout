@@ -83,7 +83,6 @@ const UploadMedia = ({ onUploadSuccess }) => {
             }
             const response = await axios.post(`${API_BASE}${endpoint}`, formData, {
                 timeout: 180000,
-                withCredentials: true,
                 headers,
             });
 

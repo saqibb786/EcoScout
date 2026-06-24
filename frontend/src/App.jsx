@@ -161,7 +161,6 @@ function App() {
       headers['X-Session-Token'] = token;
     }
     const response = await fetch(`${API_BASE}/history`, {
-      credentials: 'include',
       headers
     });
     if (response.status === 401) {
@@ -187,7 +186,6 @@ function App() {
           headers['X-Session-Token'] = token;
         }
         const response = await fetch(`${API_BASE}/auth/me`, {
-          credentials: 'include',
           headers
         });
         const data = await response.json();
@@ -219,7 +217,6 @@ function App() {
     try {
       const response = await fetch(`${API_BASE}/login`, {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
       });
@@ -262,7 +259,6 @@ function App() {
       }
       const response = await fetch(`${API_BASE}/analyses/save`, {
         method: 'POST',
-        credentials: 'include',
         headers,
         body: JSON.stringify({
           analysis_id: caseData.id,
@@ -316,7 +312,6 @@ function App() {
       }
       const response = await fetch(`${API_BASE}/analyses/${id}`, {
         method: 'DELETE',
-        credentials: 'include',
         headers,
       });
       if (response.status === 401) {
@@ -344,7 +339,6 @@ function App() {
       }
       const response = await fetch(`${API_BASE}/analyses/delete-bulk`, {
         method: 'POST',
-        credentials: 'include',
         headers,
         body: JSON.stringify({ ids }),
       });
@@ -384,7 +378,6 @@ function App() {
       }
       await fetch(`${API_BASE}/logout`, {
         method: 'POST',
-        credentials: 'include',
         headers
       });
     } catch (error) {

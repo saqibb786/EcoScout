@@ -833,7 +833,6 @@ export async function exportCaseReportPdf(inputCase) {
       }
       const resp = await fetch(`${API_BASE}/analyses/${analysisId}/report`, {
         method: 'POST',
-        credentials: 'include',
         headers,
         body: formData,
       });
