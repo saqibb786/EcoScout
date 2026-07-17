@@ -11,7 +11,7 @@
 [![Supabase](https://img.shields.io/badge/Supabase-3FCF8E.svg?logo=supabase&logoColor=white)](https://supabase.com)
 [![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-blue.svg)](https://docs.ultralytics.com)
 
-**EcoScout** is a full-stack computer vision platform that detects environmental violations (littering, illegal smoke emissions) from images and videos, automatically identifies violator vehicles, reads license plates via OCR, and generates professional investigation reports — all through an intuitive web dashboard.
+**EcoScout** is a full stack computer vision platform that detects environmental violations (littering, illegal smoke emissions) from images and videos, automatically identifies violator vehicles, reads license plates via OCR, and generates professional investigation reports — all through an intuitive web dashboard.
 
 </div>
 
